@@ -10,10 +10,6 @@ local function normalise( path )
 		  :gsub(  "/$",  "" )
 end
 
-local function countlines( str )
-	return select( 2, str:gsub( "\n", "" ) ) + 1
-end
-
 local function getcwd( str, path )
 	local t = { path = path }
 	local i = 1
@@ -314,6 +310,7 @@ function preprocess.process_file( file, state, raw )
 	local paths = splitpaths( tostring( state.environment.PATH ) )
 	local filepath = raw and file or file:gsub( "%.", "/" )
 	local filename = filepath:match ".+/(.*)" or filepath
+	local tried_paths = {}
 
 	if filepath:sub( 1, 1 ) == "/" or raw then
 		paths = { "" }
@@ -328,6 +325,7 @@ function preprocess.process_file( file, state, raw )
 			if h then
 				newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath:sub( 1, -1 - #filename ), normalise( paths[i] ) )
 			else
+				tried_paths[#tried_paths + 1] = path
 				path = path .. "/" .. filename
 				h = io.open( path .. ".lua", "r" )
 
@@ -335,6 +333,8 @@ function preprocess.process_file( file, state, raw )
 					newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath, normalise( paths[i] ) )
 				end
 			end
+
+			tried_paths[#tried_paths + 1] = path
 
 			if h then
 				if state.include_cache[path] then
@@ -353,7 +353,7 @@ function preprocess.process_file( file, state, raw )
 		end
 	end
 
-	return nil
+	return nil, tried_paths
 end
 
 function preprocess.create_state( path )
