@@ -847,6 +847,9 @@ commands["import"] = function( data, src, line, lines, state )
 
 		for i = 1, len do
 			lines[line + i] = sublines[i]
+			if sublines[i].error then
+				sublines[i].error[1] = name_err_add .. sublines[i].error[1]
+			end
 		end
 	end
 end
@@ -870,14 +873,7 @@ commands["throws"] = function( data, src, line, lines, state )
 
 	if state.error_data[name] then
 		if lines[line + 1] then
-			local data = splitspaced( args )
-			local t = { ("%q"):format( name ) }
-
-			for i = 1, #data do
-				t[i + 1] = ("%q"):format( data[i] )
-			end
-
-			lines[line + 1].error = t
+			lines[line + 1].error = { name, unpack( splitspaced( args ), 1 ) }
 		else
 			error( "expected line after @throws on line " .. line .. " of '" .. src .. "'", 0 )
 		end

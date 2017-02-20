@@ -187,8 +187,14 @@ for i = 1, #lines do
 	local line = lines[i]
 
 	if line.error then
+		local t = {}
+
+		for i = 1, #line.error do
+			t[i] = ("%q"):format( line.error[i] )
+		end
+
 		errors_raw[line.source] = errors_raw[line.source] or {}
-		errors_raw[line.source][#errors_raw[line.source] + 1] = ("[%d]={%s}"):format( line.line, concat( line.error, ", " ) )
+		errors_raw[line.source][#errors_raw[line.source] + 1] = ("[%d]={%s}"):format( line.line, concat( t, ", " ) )
 	end
 end
 
