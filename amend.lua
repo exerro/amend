@@ -333,7 +333,7 @@ if modes.executable then
 		"\n}\n";
 		DEBUG_TRACKER_FUNCTION .. "\n";
 		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		(DEBUG_PCALL:gsub( "LINES", concat( lines_compiled, "\n" ), 1 ));
+		(DEBUG_PCALL:gsub( "LINES", function() return concat( lines_compiled, "\n" ) end, 1 ));
 	}
 
 	for i = 1, #outputs do
