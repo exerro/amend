@@ -854,6 +854,7 @@ commands["import"] = function( data, src, line, lines, state )
 
 		local len = #sublines + 1
 		local lastline = 0
+		local lastsource
 
 		state.localised[name] = not state.is_private
 		state.is_private = false
@@ -875,6 +876,12 @@ commands["import"] = function( data, src, line, lines, state )
 
 			if not sublines[i].line then
 				sublines[i].line = lastline
+			end
+
+			if sublines[i].source then
+				lastsource = sublines[i].source
+			else
+				sublines[i].source = lastsource
 			end
 		end
 

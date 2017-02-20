@@ -295,6 +295,7 @@ if modes.package then
 	for i = 1, #lines do
 		local s = {}
 		local line = ""
+		local src = ""
 
 		if lines[i].error then
 			for n = 1, #lines[i].error do
@@ -306,8 +307,12 @@ if modes.package then
 			line = ",[l]=" .. lines[i].line
 		end
 
+		if not lines[i-1] or lines[i-1].source ~= lines[i].source then
+			src = (",[s]=%q"):format( lines[i].source )
+		end
+
 		local err = "{" .. table.concat( s, "," ) .. "}"
-		lines_serialised[#lines_serialised + 1] = ("{[c]=%q,[s]=%q%s%s}"):format( lines[i].content, lines[i].source, line, lines[i].error and ",[e]=" .. err or "" )
+		lines_serialised[#lines_serialised + 1] = ("{[c]=%q%s%s%s}"):format( lines[i].content, src, line, lines[i].error and ",[e]=" .. err or "" )
 	end
 end
 
