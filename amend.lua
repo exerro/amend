@@ -163,116 +163,164 @@ for i = 1, #inputs do
 end
 
 local local_list = {} -- string[] list of local names
+local locals_serialized = {} -- string[] of local lookup table indexes
 local i = 0 -- tracks index in local_list
 local n = 0 -- tracks the number of line mapping blocks
 local l = 1 -- tracks the current relative line in the compiled output
 local line_tracker = {} -- stores line mappings
 local lines_compiled = {} -- stores compiled source lines
+local lines_serialised = {} -- stores serialized lines for packages
 local errors = {} -- string[]{string} stores error mappings
 local errors_raw = {} -- temporary for calculating errors table
 local error_data = {} -- string[] stores error data
 local elength = 0 -- internal length of error mapping table
 local offset = 0 -- header line count
+local environment_serialized = {} -- string[] of the serialized environment
 
 -- section one: local list
 for k, v in pairs( state.localised ) do
 	i = i + 1
-	local_list[i] = k
-end
-
-offset = offset + (i == 0 and 0 or 1) -- 1 line if any locals defined, 0 otherwise
-
--- section two: error name mapping
-for i = 1, #lines do
-	local line = lines[i]
-
-	if line.error then
-		local t = {}
-
-		for i = 1, #line.error do
-			t[i] = ("%q"):format( line.error[i] )
-		end
-
-		errors_raw[line.source] = errors_raw[line.source] or {}
-		errors_raw[line.source][#errors_raw[line.source] + 1] = ("[%d]={%s}"):format( line.line, concat( t, ", " ) )
+	if modes.executable then
+		local_list[i] = k
+	end
+	if modes.package then
+		locals_serialized[i] = ("[%q]=true"):format( k )
 	end
 end
 
-for k, v in pairs( errors_raw ) do
-	errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, concat( v, ";\n\t\t" ) )
-	elength = elength + #v + 2
+if modes.executable then
+	offset = offset + (i == 0 and 0 or 1) -- 1 line if any locals defined, 0 otherwise
 end
 
-if #errors > 0 then
-	offset = offset + 2 + elength -- 2 for opening and closing bracket lines, elength for internal size
+-- section two: error name mapping
+if modes.executable then
+	for i = 1, #lines do
+		local line = lines[i]
+
+		if line.error then
+			local t = {}
+
+			for i = 1, #line.error do
+				t[i] = ("%q"):format( line.error[i] )
+			end
+
+			errors_raw[line.source] = errors_raw[line.source] or {}
+			errors_raw[line.source][#errors_raw[line.source] + 1] = ("[%d]={%s}"):format( line.line, concat( t, ", " ) )
+		end
+	end
+
+	for k, v in pairs( errors_raw ) do
+		errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, concat( v, ";\n\t\t" ) )
+		elength = elength + #v + 2
+	end
+
+	if #errors > 0 then
+		offset = offset + 2 + elength -- 2 for opening and closing bracket lines, elength for internal size
+	end
 end
 
 -- section three: error data store
-for k, v in pairs( state.error_data ) do
-	local t = {}
-	local pats = {}
+if modes.executable or modes.package then
+	for k, v in pairs( state.error_data ) do
+		local t = {}
+		local pats = {}
 
-	for i = 1, #v do
-		t[i] = ("{%s,%q}"):format( v[i][1], v[i][2] )
+		for i = 1, #v do
+			t[i] = ("{%q,%q}"):format( v[i][1], v[i][2] )
+		end
+
+		error_data[#error_data + 1] = ("[%q]={%s}"):format( k, concat( t, "," ) )
+	end
+end
+
+if modes.executable then
+	if #errors == 0 then
+		error_data = {}
 	end
 
-	error_data[#error_data + 1] = ("[%q]={%s}"):format( k, concat( t, "," ) )
-end
-
-if #errors == 0 then
-	error_data = {}
-end
-
-if #errors > 0 then
-	offset = offset + 2 + #error_data -- 2 for opening and closing brackets, #error_data for number of error data lines
+	if #errors > 0 then
+		offset = offset + 2 + #error_data -- 2 for opening and closing brackets, #error_data for number of error data lines
+	end
 end
 
 -- section four: line mapping table
 -- deferred
 
 -- section five: constant function strings
-offset = offset + countlines( DEBUG_TRACKER_FUNCTION ) -- debug tracker
+if modes.executable then
+	offset = offset + countlines( DEBUG_TRACKER_FUNCTION ) -- debug tracker
 
-if #errors > 0 then
-	offset = offset + countlines( ERR_MAPPING_FUNCTION )
+	if #errors > 0 then
+		offset = offset + countlines( ERR_MAPPING_FUNCTION )
+	end
 end
 
 -- section six: opening pcall string
-offset = offset + 1
+if modes.executable then
+	offset = offset + 1
+end
 
--- section seven: compiled output
-for i = 1, #lines do
-	local space = not lines[i].content:find "%S" and false
-	local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
+-- section seven: compiled/serialized lines
+if modes.executable then
+	for i = 1, #lines do
+		local space = not lines[i].content:find "%S" and false
+		local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
 
-	if lines[i].source ~= "<preprocessor>" then
-		if same_tracker and not space then
-			line_tracker[n][2] = l
-			line_tracker[n][5] = lines[i].line
-		elseif not same_tracker and not space then
-			n = n + 1
-			line_tracker[n] = { l, l, lines[i].source, lines[i].line, lines[i].line }
+		if lines[i].source ~= "<preprocessor>" then
+			if same_tracker and not space then
+				line_tracker[n][2] = l
+				line_tracker[n][5] = lines[i].line
+			elseif not same_tracker and not space then
+				n = n + 1
+				line_tracker[n] = { l, l, lines[i].source, lines[i].line, lines[i].line }
+			end
+		end
+
+		if not space then
+			lines_compiled[l] = lines[i].content
+			l = l + 1
 		end
 	end
+end
 
-	if not space then
-		lines_compiled[l] = lines[i].content
-		l = l + 1
+if modes.package then
+	for i = 1, #lines do
+		local s = {}
+
+		if lines[i].error then
+			for n = 1, #lines[i].error do
+				s[n] = ("%q"):format( lines[i].error[n] )
+			end
+		end
+
+		local err = "{" .. table.concat( s, "," ) .. "}"
+		lines_serialised[#lines_serialised + 1] = ("{[c]=%q,[s]=%q,[l]=%d%s}"):format( lines[i].content, lines[i].source, lines[i].line, lines[i].error and ",[e]=" .. err or "" )
 	end
 end
 
 -- section four offset
-offset = offset + 2 + n -- 2 for opening and closing brackets, n for number of line mapping blocks
-
--- section eight: closing pcall string
--- empty section
+if modes.executable then
+	offset = offset + 2 + n -- 2 for opening and closing brackets, n for number of line mapping blocks
+end
 
 -- conversion from line_tracker table to string
-for i = 1, #line_tracker do
-	line_tracker[i][1] = line_tracker[i][1] + offset
-	line_tracker[i][2] = line_tracker[i][2] + offset
-	line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
-	line_tracker[i] = "{" .. concat( line_tracker[i], ",", 1, 4 ) .. "}"
+if modes.executable then
+	for i = 1, #line_tracker do
+		line_tracker[i][1] = line_tracker[i][1] + offset
+		line_tracker[i][2] = line_tracker[i][2] + offset
+		line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
+		line_tracker[i] = "{" .. concat( line_tracker[i], ",", 1, 4 ) .. "}"
+	end
+end
+
+-- serialization of environment
+if modes.package then
+	for k, v in pairs( state.environment ) do
+		environment_serialized[#environment_serialized + 1] = ("[%q]=%s"):format( k,
+	 		   type( v ) == "string" and ("%q"):format( v )
+		    or type( v ) == "table" and "not_yet"
+		    or tostring( v ) )
+	end
 end
 
 if modes.executable then
@@ -301,19 +349,12 @@ if modes.executable then
 end
 
 if modes.package then
-	error "Package mode is not currently implemented"
-
-	-- this all needs to change...
 	package_compiled = concat {
-		#local_list > 0 and "local " .. concat( local_list, "," ) .. "\n" or "";
-		(#errors > 0 and "local __debug_err_map={\n\t" .. concat( errors, ";\n\t" ) .. "\n}\n" or "");
-		(#errors > 0 and "local __debug_err_pats={\n\t" .. concat( error_data, ";\n\t" ) .. "\n}\n" or "");
-		"local __debug_line_tracker={\n\t";
-		concat( line_tracker, ",\n\t" );
-		"\n}\n";
-		DEBUG_TRACKER_FUNCTION .. "\n";
-		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		(DEBUG_PCALL:gsub( "LINES", concat( lines_compiled, "\n" ), 1 ));
+		"local c,s,l,e='content','source','line','error'\n";
+		"return {\n" .. table.concat( environment_serialized, ",\n" ) .. "\n}, ";
+		"{\n\t" .. concat( error_data, ",\n\t" ) .. "\n},\n";
+		"{" .. table.concat( locals_serialized, ";" ) .. "},\n";
+		"{\n\t" .. table.concat( lines_serialised, ",\n\t" ) .. "\n}";
 	}
 
 	for i = 1, #outputs do

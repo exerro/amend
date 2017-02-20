@@ -3,6 +3,10 @@ local preprocess = {}
 
 local commands = {}
 
+local function unstringify( s )
+	return assert( load( "return" .. s, "string value", nil, {} ) )()
+end
+
 local function normalise( path )
 	return path
 		  :gsub( "//+", "/" )
@@ -896,7 +900,7 @@ commands["errordata"] = function( data, src, line, lines, state )
 		    or error( "expected data after errordata pattern on line " .. line .. " of '" .. src .. "'", 0 )
 
 		state.error_data[name] = state.error_data[name] or {}
-		state.error_data[name][#state.error_data[name] + 1] = { pat, data }
+		state.error_data[name][#state.error_data[name] + 1] = { unstringify( pat ), data }
 	elseif data:sub( 1, 9 ) == "extension" then
 		local subname = name:match "(.+)%."
 		             or error( "expected '<parent>.' (got '" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
