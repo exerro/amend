@@ -41,19 +41,7 @@ local function splitat( dat, pat )
 end
 
 local function splitpaths( path )
-	local paths = {}
-	local i = 1
-
-	for p in path:gmatch "[^;+]+" do
-		paths[i] = p
-		i = i + 1
-	end
-
-	if path:find ";;" or path == ";" or path == "" then
-		paths[i] = ""
-	end
-
-	return paths
+	return path == "" and { "" } or splitat( path, ";" )
 end
 
 local function tolines( content, source )
@@ -69,7 +57,7 @@ local function tolines( content, source )
 		s = content:find( "\n", p )
 	end
 
-	lines[i] = { content = content:sub( p ), line = i, source = source }
+	lines[i] = { content = content:sub( p ), line = i, source = source, error = nil }
 
 	return lines
 end
@@ -77,6 +65,7 @@ end
 local function find_non_escaped( line, pat, pos )
 	local closer = line:find( pat, pos )
 	local escape = line:find( "\\", pos )
+	local patlen = #pat
 
 	if not closer then
 		return nil
@@ -84,7 +73,7 @@ local function find_non_escaped( line, pat, pos )
 
 	while escape and escape < closer do
 		if escape == closer - 1 then
-			closer = line:find( pat, escape + 2 )
+			closer = line:find( pat, closer + patlen )
 		end
 		escape = line:find( "\\", escape + 2 )
 	end
@@ -273,6 +262,46 @@ local function fmtlineout( data, state )
 	end ))
 end
 
+local function resolvefile( file, state, raw )
+	local cwd = state.cwd[#state.cwd] or {}
+	local paths = splitpaths( tostring( state.environment.PATH ) )
+	local filepath = raw and file or file:gsub( "%.", "/" )
+	local filename = filepath:match ".+/(.*)" or filepath
+	local tried_paths = {}
+
+	if filepath:sub( 1, 1 ) == "/" or raw then
+		paths = { "" }
+	end
+
+	for i = 1, #paths do
+		for n = paths[i] == cwd.path and #cwd or 0, 0, -1 do
+			local path = normalise( paths[i] .. "/" .. table.concat( cwd, "/", 1, n ) .. "/" .. filepath )
+			local newcwd
+			local h = io.open( path .. ".lua", "r" )
+
+			if h then
+				newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath:sub( 1, -1 - #filename ), normalise( paths[i] ) )
+			else
+				tried_paths[#tried_paths + 1] = path
+				path = path .. "/" .. filename
+				h = io.open( path .. ".lua", "r" )
+
+				if h then
+					newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath, normalise( paths[i] ) )
+				end
+			end
+
+			tried_paths[#tried_paths + 1] = path
+
+			if h then
+				return h, path, newcwd
+			end
+		end
+	end
+
+	return nil, tried_paths
+end
+
 local function processline( lines, src, line, state )
 	local linestr = lines[line].content
 	local command, res = linestr:match "^%s*%-%-%s*@(%w+)%s*(.*)"
@@ -306,54 +335,24 @@ function preprocess.process_content( content, source, state )
 end
 
 function preprocess.process_file( file, state, raw )
-	local cwd = state.cwd[#state.cwd] or {}
-	local paths = splitpaths( tostring( state.environment.PATH ) )
-	local filepath = raw and file or file:gsub( "%.", "/" )
-	local filename = filepath:match ".+/(.*)" or filepath
-	local tried_paths = {}
+	local h, path, newcwd = resolvefile( file, state, raw )
 
-	if filepath:sub( 1, 1 ) == "/" or raw then
-		paths = { "" }
-	end
-
-	for i = 1, #paths do
-		for n = paths[i] == cwd.path and #cwd or 0, 0, -1 do
-			local path = normalise( paths[i] .. "/" .. table.concat( cwd, "/", 1, n ) .. "/" .. filepath )
-			local newcwd
-			local h = io.open( path .. ".lua", "r" )
-
-			if h then
-				newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath:sub( 1, -1 - #filename ), normalise( paths[i] ) )
-			else
-				tried_paths[#tried_paths + 1] = path
-				path = path .. "/" .. filename
-				h = io.open( path .. ".lua", "r" )
-
-				if h then
-					newcwd = getcwd( table.concat( cwd, "/", 1, n ) .. "/" .. filepath, normalise( paths[i] ) )
-				end
-			end
-
-			tried_paths[#tried_paths + 1] = path
-
-			if h then
-				if state.include_cache[path] then
-					h:close()
-					return {}
-				end
-
-				state.include_cache[path] = true
-
-				local content = h:read "*a"
-
-				h:close()
-				state.cwd[#state.cwd + 1] = newcwd
-				return preprocess.process_content( content, file, state )
-			end
+	if h then
+		if state.include_cache[path] then
+			h:close()
+			return {}
 		end
+
+		local content = h:read "*a"
+
+		h:close()
+		state.include_cache[path] = true
+		state.cwd[#state.cwd + 1] = newcwd
+
+		return preprocess.process_content( content, file, state )
 	end
 
-	return nil, tried_paths
+	return nil, path
 end
 
 function preprocess.create_state( path )
@@ -774,42 +773,65 @@ commands["import"] = function( data, src, line, lines, state )
 	local file, name = data:match "^([%w_%./]+)%s+as%s+([%w_]+)$"
 
 	if not file then
-		file = data:match "^[%w_%./]+/[%w_]+$" or data:match "^[%w_]+$"
+		file = data:match "^[%w_%./]+/[%w_]+$" or data:match "^[%w_]+$" or data:match "^[%w_%./]+/[%w_]+%.pack$" or data:match "^[%w_]+%.pack$"
 		       or error( "expected <path> [as <name>] after @import, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
-		name = file:match ".+/(.*)$" or file
+		name = (file:match ".+/(.*)$" or file):gsub( "%.pack$", "", 1 )
 	end
 
 	if state.ifstack_resultant then
-		local substate = preprocess.create_state( file:match "(.+)/" or "" )
-		local name_env_pat = "^" .. name:upper() .. "_"
-		local name_env_len = #name_env_pat
 		local name_env_add = name:upper() .. "_"
 		local name_err_add = name:lower() .. "_"
 		local localised_names = {}
 		local localised = {}
+		local exports = {}
+		local environment, error_data, localised, sublines
 
-		substate.microminify = state.microminify
-		substate.minify.active = state.minify.active
+		if file:sub( -5 ) == ".pack" then
+			local h, path = resolvefile( file, state, true )
 
-		for k, v in pairs( state.environment ) do
-			if k:find( name_env_pat ) then
-				substate.environment[k:sub( name_env_len )] = v
+			if h then
+				local content = h:read "*a"
+
+				h:close()
+
+				local f = assert( load( content, file:match ".+/(.*)" or file, nil, {} ) )
+
+				environment, error_data, localised, sublines = f()
+			else
+				error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 			end
+		else
+			local substate = preprocess.create_state( file:match "(.+)/" or "" )
+			local name_env_pat = "^" .. name:upper() .. "_"
+			local name_env_len = #name_env_pat
+
+			substate.microminify = state.microminify
+			substate.minify.active = state.minify.active
+
+			for k, v in pairs( state.environment ) do
+				if k:find( name_env_pat ) then
+					substate.environment[k:sub( name_env_len )] = v
+				end
+			end
+
+			sublines = preprocess.process_file( file, substate, true )
+				or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+
+			environment = substate.environment
+			error_data = substate.error_data
+			localised = substate.localised
 		end
 
-		local sublines = preprocess.process_file( file, substate, true )
-			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
-
-		for k, v in pairs( substate.environment ) do
+		for k, v in pairs( environment ) do
 			state.environment[name_env_add .. k] = v
 		end
 
-		for k, v in pairs( substate.error_data ) do
+		for k, v in pairs( error_data ) do
 			state.error_data[name_err_add .. k] = v
 		end
 
-		for k, v in pairs( substate.localised ) do
-			localised[#localised + 1] = name .. "." .. k .. " = " .. k
+		for k, v in pairs( localised ) do
+			exports[#exports + 1] = name .. "." .. k .. " = " .. k
 			localised_names[#localised_names + 1] = k
 		end
 
@@ -817,7 +839,7 @@ commands["import"] = function( data, src, line, lines, state )
 
 		state.localised[name] = true
 		lines[line].content = "do " .. name .. " = {}" .. (#localised_names > 0 and " local " .. table.concat( localised_names, ", " ) or "")
-		sublines[len] = { content = table.concat( localised, ";" ) .. " end", source = "<preprocessor>", line = 0 }
+		sublines[len] = { content = table.concat( exports, "; " ) .. " end", source = "<preprocessor>", line = 0 }
 
 		for i = #lines, line + 1, -1 do
 			lines[i + len] = lines[i]
