@@ -152,7 +152,17 @@ local package_compiled
 state.microminify = microminify
 
 for i = 1, #flags do
-	state.environment[flags[i]] = true
+	local name, value = flags[i], true
+
+	if name:find "=" then
+		name, value = name:match "(.*)=(.*)"
+	end
+
+	if tonumber( value ) then
+		value = tonumber( value )
+	end
+
+	state.environment[name] = value ~= "false" and (value == "true" or value)
 end
 
 for i = 1, #inputs do
