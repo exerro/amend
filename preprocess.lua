@@ -853,6 +853,7 @@ commands["import"] = function( data, src, line, lines, state )
 		end
 
 		local len = #sublines + 1
+		local lastline = 0
 
 		state.localised[name] = not state.is_private
 		state.is_private = false
@@ -865,8 +866,15 @@ commands["import"] = function( data, src, line, lines, state )
 
 		for i = 1, len do
 			lines[line + i] = sublines[i]
+
 			if sublines[i].error then
 				sublines[i].error[1] = name_err_add .. sublines[i].error[1]
+			end
+
+			lastline = sublines[i].line or lastline + 1
+
+			if not sublines[i].line then
+				sublines[i].line = lastline
 			end
 		end
 
