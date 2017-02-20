@@ -790,7 +790,6 @@ commands["import"] = function( data, src, line, lines, state )
 
 		substate.microminify = state.microminify
 		substate.minify.active = state.minify.active
-		substate.errors = state.errors
 
 		for k, v in pairs( state.environment ) do
 			if k:find( name_env_pat ) then
@@ -800,6 +799,14 @@ commands["import"] = function( data, src, line, lines, state )
 
 		local sublines = preprocess.process_file( file, substate, true )
 			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+
+		for k, v in pairs( substate.errors ) do
+			k = name_err_add .. k
+			state.errors[k] = state.errors[k] or {}
+			for i = 1, #v do
+				state.errors[k][#state.errors[k] + 1] = v[i]
+			end
+		end
 
 		for k, v in pairs( substate.environment ) do
 			state.environment[name_env_add .. k] = v
@@ -848,7 +855,7 @@ commands["throws"] = function( data, src, line, lines, state )
 	end
 
 	if state.errors[name] then
-		state.errors[name][#state.errors[name] + 1] = { src, line + 1, splitspaced( args ) }
+		state.errors[name][#state.errors[name] + 1] = { src, lines[line + 1] and lines[line + 1].line or lines[line].line + 1, splitspaced( args ) }
 	else
 		return error( "undefined error name after @throws ('" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 	end

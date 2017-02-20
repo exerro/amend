@@ -284,7 +284,7 @@ if modes.executable then
 		"\n}\n";
 		DEBUG_TRACKER_FUNCTION .. "\n";
 		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 );
+		(DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 ));
 	}
 
 	for i = 1, #outputs do
@@ -312,7 +312,7 @@ if modes.package then
 		"\n}\n";
 		DEBUG_TRACKER_FUNCTION .. "\n";
 		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 );
+		(DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 ));
 	}
 
 	for i = 1, #outputs do
