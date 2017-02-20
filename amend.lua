@@ -47,10 +47,9 @@ local function __get_err_msg( src, line, err )
 	return err
 end]]
 
-local PCALL_BEGIN = [[
-local __debug_ok, __debug_err = pcall( function()]]
-
-local PCALL_END = [[
+local DEBUG_PCALL = [[
+local __debug_ok, __debug_err = pcall( function()
+LINES
 end )
 if not __debug_ok then
 	if type( __debug_err ) == "string" then
@@ -83,109 +82,6 @@ local preprocess = dofile "amend/preprocess.lua"
 
 local function countlines( str )
 	return select( 2, str:gsub( "\n", "" ) ) + 1
-end
-
-local function compile_lines( lines, state )
-	local local_list = {}
-	local i = 1
-	local n = 0
-	local l = 1
-	local line_tracker = {}
-	local lines_compiled = {}
-	local errors = {}
-	local errors_raw = {}
-	local error_data = {}
-	local elength = 0
-
-	for k, v in pairs( state.error_data ) do
-		local t = {}
-		local pats = {}
-
-		for i = 1, #v do
-			t[i] = ("{%s,%q}"):format( v[i][1], v[i][2] )
-		end
-
-		error_data[#error_data + 1] = ("[%q]={%s}"):format( k, table.concat( t, "," ) )
-	end
-
-	for k, v in pairs( state.errors ) do
-		for n = 1, #v do
-			local t = { ("%q"):format( k ) }
-
-			for i = 1, #v[n][3] do
-				t[i + 1] = ("%q"):format( v[n][3][i] )
-			end
-
-			errors_raw[v[n][1]] = errors_raw[v[n][1]] or {}
-			errors_raw[v[n][1]][#errors_raw[v[n][1]] + 1] = "[" .. v[n][2] .. "]={" .. table.concat( t, "," ) .. "}"
-		end
-	end
-
-	for k, v in pairs( errors_raw ) do
-		local s = table.concat( v, ";\n" )
-
-		errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, table.concat( v, ";\n\t\t" ) )
-		elength = elength + #v + 2
-	end
-
-	if #errors == 0 then
-		elength = 0
-		error_data = {}
-	end
-
-	for k, v in pairs( state.localised ) do
-		local_list[i] = k
-		i = i + 1
-	end
-
-	for i = 1, #lines do
-		local space = not lines[i].content:find "%S" and false
-		local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
-
-		if lines[i].source ~= "<preprocessor>" then
-			if same_tracker and not space then
-				line_tracker[n][2] = l
-				line_tracker[n][5] = lines[i].line
-			elseif not same_tracker and not space then
-				n = n + 1
-				line_tracker[n] = { l, l, lines[i].source, lines[i].line, lines[i].line }
-			end
-		end
-
-		if not space then
-			lines_compiled[l] = lines[i].content
-			l = l + 1
-		end
-	end
-
-	local offset = (#local_list > 0 and 1 or 0) -- variables localised at top
-		+ (#errors > 0 and 1 + elength + 1 or 0) -- errors
-		+ (#errors > 0 and 1 + #error_data + 1 or 0) -- error_data
-		+ 1 + n + 1 -- line mapping
-		+ countlines( DEBUG_TRACKER_FUNCTION ) -- debug tracker
-		+ (#errors > 0 and countlines( ERR_MAPPING_FUNCTION ) or 0) -- err mapping function
-		+ 1 -- newline at end
-
-	for i = 1, #line_tracker do
-		line_tracker[i][1] = line_tracker[i][1] + offset
-		line_tracker[i][2] = line_tracker[i][2] + offset
-		line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
-		line_tracker[i] = "{" .. table.concat( line_tracker[i], ",", 1, 4 ) .. "}"
-	end
-
-	return table.concat {
-		#local_list > 0 and "local " .. table.concat( local_list, "," ) .. "\n" or "";
-		(#errors > 0 and "local __debug_err_map={\n\t" .. table.concat( errors, ";\n\t" ) .. "\n}\n" or "");
-		(#errors > 0 and "local __debug_err_pats={\n\t" .. table.concat( error_data, ";\n\t" ) .. "\n}\n" or "");
-		"local __debug_line_tracker={\n\t";
-		table.concat( line_tracker, ",\n\t" );
-		"\n}\n";
-		DEBUG_TRACKER_FUNCTION .. "\n";
-		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		PCALL_BEGIN .. "\n";
-		table.concat( lines_compiled, "\n" ) .. "\n";
-		PCALL_END;
-	}
 end
 
 for i = 1, #args do
@@ -243,7 +139,8 @@ end
 local state = preprocess.create_state( table.concat( sources, ";" ) )
 local lines = {}
 local linec = 0
-local compiled
+local executable_compiled
+local package_compiled
 
 for i = 1, #flags do
 	state.environment[flags[i]] = true
@@ -264,17 +161,168 @@ for i = 1, #inputs do
 	linec = linec + file_linec
 end
 
-do
-	compiled = compile_lines( lines, state )
+local local_list = {} -- string[] list of local names
+local i = 0 -- tracks index in local_list
+local n = 0 -- tracks the number of line mapping blocks
+local l = 1 -- tracks the current relative line in the compiled output
+local line_tracker = {} -- stores line mappings
+local lines_compiled = {} -- stores compiled source lines
+local errors = {} -- string[]{string} stores error mappings
+local errors_raw = {} -- temporary for calculating errors table
+local error_data = {} -- string[] stores error data
+local elength = 0 -- internal length of error mapping table
+local offset = 0 -- header line count
+
+-- section one: local list
+for k, v in pairs( state.localised ) do
+	i = i + 1
+	local_list[i] = k
 end
 
-for i = 1, #outputs do
-	local h = io.open( outputs[i] .. ".lua", "w" )
+offset = offset + (i == 0 and 0 or 1) -- 1 line if any locals defined, 0 otherwise
 
-	if h then
-		h:write( compiled )
-		h:close()
-	else
-		error( "failed to write to output '" .. outputs[i] .. "'", 0 )
+-- section two: error name mapping
+for k, v in pairs( state.errors ) do
+	for n = 1, #v do
+		local t = { ("%q"):format( k ) }
+
+		for i = 1, #v[n][3] do
+			t[i + 1] = ("%q"):format( v[n][3][i] )
+		end
+
+		errors_raw[v[n][1]] = errors_raw[v[n][1]] or {}
+		errors_raw[v[n][1]][#errors_raw[v[n][1]] + 1] = "[" .. v[n][2] .. "]={" .. table.concat( t, "," ) .. "}"
+	end
+end
+
+for k, v in pairs( errors_raw ) do
+	local s = table.concat( v, ";\n" )
+
+	errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, table.concat( v, ";\n\t\t" ) )
+	elength = elength + #v + 2
+end
+
+if #errors > 0 then
+	offset = offset + 2 + elength -- 2 for opening and closing bracket lines, elength for internal size
+end
+
+-- section three: error data store
+for k, v in pairs( state.error_data ) do
+	local t = {}
+	local pats = {}
+
+	for i = 1, #v do
+		t[i] = ("{%s,%q}"):format( v[i][1], v[i][2] )
+	end
+
+	error_data[#error_data + 1] = ("[%q]={%s}"):format( k, table.concat( t, "," ) )
+end
+
+if #errors == 0 then
+	error_data = {}
+end
+
+if #errors > 0 then
+	offset = offset + 2 + #error_data -- 2 for opening and closing brackets, #error_data for number of error data lines
+end
+
+-- section four: line mapping table
+-- deferred
+
+-- section five: constant function strings
+offset = offset + countlines( DEBUG_TRACKER_FUNCTION ) -- debug tracker
+
+if #errors > 0 then
+	offset = offset + countlines( ERR_MAPPING_FUNCTION )
+end
+
+-- section six: opening pcall string
+offset = offset + 1
+
+-- section seven: compiled output
+for i = 1, #lines do
+	local space = not lines[i].content:find "%S" and false
+	local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
+
+	if lines[i].source ~= "<preprocessor>" then
+		if same_tracker and not space then
+			line_tracker[n][2] = l
+			line_tracker[n][5] = lines[i].line
+		elseif not same_tracker and not space then
+			n = n + 1
+			line_tracker[n] = { l, l, lines[i].source, lines[i].line, lines[i].line }
+		end
+	end
+
+	if not space then
+		lines_compiled[l] = lines[i].content
+		l = l + 1
+	end
+end
+
+-- section four offset
+offset = offset + 2 + n -- 2 for opening and closing brackets, n for number of line mapping blocks
+
+-- section eight: closing pcall string
+-- empty section
+
+-- conversion from line_tracker table to string
+for i = 1, #line_tracker do
+	line_tracker[i][1] = line_tracker[i][1] + offset
+	line_tracker[i][2] = line_tracker[i][2] + offset
+	line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
+	line_tracker[i] = "{" .. table.concat( line_tracker[i], ",", 1, 4 ) .. "}"
+end
+
+if modes.executable then
+	executable_compiled = table.concat {
+		#local_list > 0 and "local " .. table.concat( local_list, "," ) .. "\n" or "";
+		(#errors > 0 and "local __debug_err_map={\n\t" .. table.concat( errors, ";\n\t" ) .. "\n}\n" or "");
+		(#errors > 0 and "local __debug_err_pats={\n\t" .. table.concat( error_data, ";\n\t" ) .. "\n}\n" or "");
+		"local __debug_line_tracker={\n\t";
+		table.concat( line_tracker, ",\n\t" );
+		"\n}\n";
+		DEBUG_TRACKER_FUNCTION .. "\n";
+		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
+		DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 );
+	}
+
+	for i = 1, #outputs do
+		local h = io.open( outputs[i] .. ".lua", "w" )
+
+		if h then
+			h:write( executable_compiled )
+			h:close()
+		else
+			error( "failed to write to output '" .. outputs[i] .. "'", 0 )
+		end
+	end
+end
+
+if modes.package then
+	error "Package mode is not currently implemented"
+
+	-- this all needs to change...
+	package_compiled = table.concat {
+		#local_list > 0 and "local " .. table.concat( local_list, "," ) .. "\n" or "";
+		(#errors > 0 and "local __debug_err_map={\n\t" .. table.concat( errors, ";\n\t" ) .. "\n}\n" or "");
+		(#errors > 0 and "local __debug_err_pats={\n\t" .. table.concat( error_data, ";\n\t" ) .. "\n}\n" or "");
+		"local __debug_line_tracker={\n\t";
+		table.concat( line_tracker, ",\n\t" );
+		"\n}\n";
+		DEBUG_TRACKER_FUNCTION .. "\n";
+		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
+		DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 );
+	}
+
+	for i = 1, #outputs do
+		local h = io.open( outputs[i] .. ".pack.lua", "w" )
+
+		if h then
+			h:write( package_compiled )
+			h:close()
+		else
+			error( "failed to write to output '" .. outputs[i] .. "'", 0 )
+		end
 	end
 end
