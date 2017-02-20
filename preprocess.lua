@@ -383,8 +383,10 @@ end
 
 commands["localise"] = function( data, src, line, lines, state )
 	if data:find "^[%w_]+$" then
-		state.localised[data] = not state.is_private
-		state.is_private = false
+		if state.ifstack_resultant then
+			state.localised[data] = not state.is_private
+			state.is_private = false
+		end
 	else
 		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 	end
@@ -431,11 +433,13 @@ commands["class"] = function( data, src, line, lines, state )
 		return error( "unexpected '" .. data .. "' after class definition on line " .. line .. " of '" .. src .. "'", 0 )
 	end
 
-	lines[line].content = ("%s = class.new( %q, %s, %s ) {")
-	           :format( classname, classname, extends or "nil", #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
+	if state.ifstack_resultant then
+		lines[line].content = ("%s = class.new( %q, %s, %s ) {")
+		           :format( classname, classname, extends or "nil", #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
 
-	state.localised[classname] = not state.is_private
-	state.is_private = false
+		state.localised[classname] = not state.is_private
+		state.is_private = false
+	end
 end
 
 commands["interface"] = function( data, src, line, lines, state )
@@ -467,19 +471,23 @@ commands["interface"] = function( data, src, line, lines, state )
 		return error( "unexpected '" .. data .. "' after interface definition on line " .. line .. " of '" .. src .. "'", 0 )
 	end
 
-	lines[line].content = ("%s = class.new_interface( %q, %s ) {")
-			   :format( interfacename, interfacename, #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
+	if state.ifstack_resultant then
+		lines[line].content = ("%s = class.new_interface( %q, %s ) {")
+				   :format( interfacename, interfacename, #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
 
-	state.localised[interfacename] = not state.is_private
-	state.is_private = false
+		state.localised[interfacename] = not state.is_private
+		state.is_private = false
+	end
 end
 
 commands["enum"] = function( data, src, line, lines, state )
 	if data:find "^[%w_]+ {$" then
-		local name = data:sub( 1, -3 )
-		state.localised[name] = not state.is_private
-		state.is_private = false
-		lines[line].content = ("%s = class.new_enum %q {"):format( name, name )
+		if state.ifstack_resultant then
+			local name = data:sub( 1, -3 )
+			state.localised[name] = not state.is_private
+			state.is_private = false
+			lines[line].content = ("%s = class.new_enum %q {"):format( name, name )
+		end
 	else
 		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 	end
@@ -488,6 +496,10 @@ end
 commands["define"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+"
 	          or error( "expected name after @define (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+
+	if not state.ifstack_resultant then
+		return
+	end
 
 	data = data:sub( #name + 1 )
 
@@ -525,7 +537,7 @@ commands["defineifndef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+"
 	          or error( "expected name after @defineifndef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 
-	if not state.environment[name] then
+	if not state.environment[name] and state.ifstack_resultant then
 		return commands.define( data, src, line, lines, state )
 	end
 end
@@ -534,7 +546,9 @@ commands["unset"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
 			  or error( "expected name after @unset (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 
-	state.environment[name] = nil
+	if state.ifstack_resultant then
+		state.environment[name] = nil
+	end
 end
 
 commands["print"] = function( data, src, line, lines, state )
@@ -716,6 +730,7 @@ end
 commands["include"] = function( data, src, line, lines, state )
 	local file = data:match "^[%w_%.]+$"
 	          or error( "expected valid name after @include, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+
 	if state.ifstack_resultant then
 		local sublines = preprocess.process_file( file, state )
 			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
@@ -736,6 +751,7 @@ end
 commands["includeraw"] = function( data, src, line, lines, state )
 	local file = data:match "^[%w_%./]+$"
 	          or error( "expected valid name after @includeraw, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+
 	if state.ifstack_resultant then
 		local sublines = preprocess.process_file( file, state, true )
 			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
@@ -863,8 +879,10 @@ commands["minifystr"] = function( data, src, line, lines, state )
 		return error( "unexpected data after @minifystr ('" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 	end
 
-	if state.minify.active then
-		state.minify.next_string = true
+	if state.ifstack_resultant then
+		if state.minify.active then
+			state.minify.next_string = true
+		end
 	end
 end
 
@@ -876,10 +894,12 @@ commands["throws"] = function( data, src, line, lines, state )
 	end
 
 	if state.error_data[name] then
-		if lines[line + 1] then
-			lines[line + 1].error = { name, unpack( splitspaced( args ), 1 ) }
-		else
-			error( "expected line after @throws on line " .. line .. " of '" .. src .. "'", 0 )
+		if state.ifstack_resultant then
+			if lines[line + 1] then
+				lines[line + 1].error = { name, unpack( splitspaced( args ), 1 ) }
+			else
+				error( "expected line after @throws on line " .. line .. " of '" .. src .. "'", 0 )
+			end
 		end
 	else
 		return error( "undefined error name after @throws ('" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
@@ -899,8 +919,10 @@ commands["errordata"] = function( data, src, line, lines, state )
 		data = data:sub( #pat + 1 ):match "^%s+(.*)"
 		    or error( "expected data after errordata pattern on line " .. line .. " of '" .. src .. "'", 0 )
 
-		state.error_data[name] = state.error_data[name] or {}
-		state.error_data[name][#state.error_data[name] + 1] = { unstringify( pat ), data }
+		if state.ifstack_resultant then
+			state.error_data[name] = state.error_data[name] or {}
+			state.error_data[name][#state.error_data[name] + 1] = { unstringify( pat ), data }
+		end
 	elseif data:sub( 1, 9 ) == "extension" then
 		local subname = name:match "(.+)%."
 		             or error( "expected '<parent>.' (got '" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
@@ -909,13 +931,15 @@ commands["errordata"] = function( data, src, line, lines, state )
 			return error( "invalid errordata extension parent ('" .. subname .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 		end
 
-	  	state.error_data[name] = state.error_data[name] or {}
+		if state.ifstack_resultant then
+			data = data:match "^extension%s+(.*)"
+				or error( "expected data after 'extension' on line " .. line .. " of '" .. src .. "'", 0 )
 
-		data = data:match "^extension%s+(.*)"
-		    or error( "expected data after 'extension' on line " .. line .. " of '" .. src .. "'", 0 )
+		  	state.error_data[name] = state.error_data[name] or {}
 
-		for i = 1, #state.error_data[subname] do
-			state.error_data[name][#state.error_data[name] + 1] = { state.error_data[subname][i][1], state.error_data[subname][i][2] .. ": " .. data }
+			for i = 1, #state.error_data[subname] do
+				state.error_data[name][#state.error_data[name] + 1] = { state.error_data[subname][i][1], state.error_data[subname][i][2] .. ": " .. data }
+			end
 		end
 	end
 end
@@ -924,8 +948,10 @@ commands["private"] = function( data, src, line, lines, state )
 	if data:find "%S" then
 		error( "unexpected data after @private on line " .. line .. " of '" .. src .. "'", 0 )
 	end
-
-	state.is_private = true
+	
+	if state.ifstack_resultant then
+		state.is_private = true
+	end
 end
 
 return preprocess
