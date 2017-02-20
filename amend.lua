@@ -24,9 +24,10 @@ local DEBUG_TRACKER_FUNCTION = [[
 local function __get_src_and_line( line )
 	for i = 1, #__debug_line_tracker do
 		local t = __debug_line_tracker[i]
-		if line >= t[1] and line <= t[2] then
+		if line >= t[1] and line <= t[1] + t[2] then
 			return t[3], t[4] + line - t[1]
 		end
+		line = line - t[1]
 	end
 	return "unknown source", 0
 end]]
@@ -59,7 +60,7 @@ if not __debug_ok then
 
 		if line then
 			local src, line = __get_src_and_line( tonumber( line ) )
-			return error( src .. "[" .. line .. "]: " .. __get_err_msg( src, line, msg ), 0 )
+			return error( src .. "[" .. line .. "]: " .. (__get_err_msg and __get_err_msg( src, line, msg ) or msg), 0 )
 		end
 	end
 
@@ -263,11 +264,11 @@ end
 -- section seven: compiled/serialized lines
 if modes.executable then
 	for i = 1, #lines do
-		local space = not lines[i].content:find "%S" and false
+		local space = not lines[i].content:find "%S"
 		local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
 
 		if lines[i].source ~= "<preprocessor>" then
-			if same_tracker and not space then
+			if same_tracker then
 				line_tracker[n][2] = l
 				line_tracker[n][5] = lines[i].line
 			elseif not same_tracker and not space then
@@ -276,7 +277,7 @@ if modes.executable then
 			end
 		end
 
-		if not space then
+		if not space or same_tracker then
 			lines_compiled[l] = lines[i].content
 			l = l + 1
 		end
@@ -305,10 +306,13 @@ end
 
 -- conversion from line_tracker table to string
 if modes.executable then
+	local cummulative = 0
+
 	for i = 1, #line_tracker do
-		line_tracker[i][1] = line_tracker[i][1] + offset
-		line_tracker[i][2] = line_tracker[i][2] + offset
+		line_tracker[i][2] = line_tracker[i][2] - line_tracker[i][1]
+		line_tracker[i][1] = i == 1 and line_tracker[1][1] + offset or line_tracker[i][1] - cummulative
 		line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
+		cummulative = cummulative + line_tracker[i][1] - (i == 1 and offset or 0)
 		line_tracker[i] = "{" .. concat( line_tracker[i], ",", 1, 4 ) .. "}"
 	end
 end
