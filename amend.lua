@@ -15,6 +15,8 @@ Options
     add an include path
  --mode; -m <mode>
     set compilation mode
+ --microminify; -mm
+    enable microminification
 
 Valid compilation modes are 'executable' ('-me') and 'package' ('mp')
 Input paths are relative and use dot notation (subdir.file not subdir/file.lua)
@@ -77,6 +79,7 @@ local flags = {}
 local outputs = {}
 local sources = {}
 local modes = {}
+local microminify = false
 
 local flag_modifier
 local preprocess = dofile "amend/preprocess.lua"
@@ -115,6 +118,8 @@ for i = 1, #args do
 		modes.executable = true
 	elseif args[i] == "-mp" then
 		modes.package = true
+	elseif args[i] == "-mm" then
+		microminify = true
 	else
 		inputs[#inputs + 1] = args[i]
 	end
@@ -143,6 +148,8 @@ local lines = {}
 local linec = 0
 local executable_compiled
 local package_compiled
+
+state.microminify = microminify
 
 for i = 1, #flags do
 	state.environment[flags[i]] = true

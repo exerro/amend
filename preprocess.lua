@@ -570,7 +570,7 @@ end
 
 commands["print"] = function( data, src, line, lines, state )
 	if state.ifstack_resultant then
-		return print( fmtlineout( data, state ) )
+		print( fmtlineout( data, state ) )
 	end
 end
 
