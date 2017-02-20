@@ -309,6 +309,7 @@ end
 local function processline( lines, src, line, state )
 	local linestr = lines[line].content
 	local command, res = linestr:match "^%s*%-%-%s*@(%w+)%s*(.*)"
+	local skip = 0
 
 	if not command then
 		command, res = linestr:match "^%s*@(%w+)%s*(.*)"
@@ -317,13 +318,15 @@ local function processline( lines, src, line, state )
 	if command then
 		lines[line].content = ""
 		if commands[command] then
-			commands[command]( res, src, line, lines, state )
+			skip = commands[command]( res, src, line, lines, state ) or 0
 		else
 		    error( "cannot execute instruction '" .. command .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 		end
 	end
 
 	lines[line].content = fmtline( lines[line].content, state )
+
+	return skip
 end
 
 function preprocess.process_content( content, source, state )
@@ -331,8 +334,7 @@ function preprocess.process_content( content, source, state )
 	local line = 1
 
 	while line <= #lines do
-		processline( lines, source, line, state )
-		line = line + 1
+		line = line + processline( lines, source, line, state ) + 1
 	end
 
 	return lines
@@ -752,6 +754,8 @@ commands["include"] = function( data, src, line, lines, state )
 		for i = 1, len do
 			lines[line + i] = sublines[i]
 		end
+
+		return len
 	end
 end
 
@@ -770,6 +774,8 @@ commands["includeraw"] = function( data, src, line, lines, state )
 		for i = 1, len do
 			lines[line + i] = sublines[i]
 		end
+
+		return len
 	end
 end
 
@@ -855,6 +861,8 @@ commands["import"] = function( data, src, line, lines, state )
 				sublines[i].error[1] = name_err_add .. sublines[i].error[1]
 			end
 		end
+
+		return len
 	end
 end
 
