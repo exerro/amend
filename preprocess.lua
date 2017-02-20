@@ -377,12 +377,14 @@ function preprocess.create_state( path )
 		};
 		cwd = {};
 		include_cache = {};
+		is_private = false;
 	}
 end
 
 commands["localise"] = function( data, src, line, lines, state )
 	if data:find "^[%w_]+$" then
-		state.localised[data] = true
+		state.localised[data] = not state.is_private
+		state.is_private = false
 	else
 		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 	end
@@ -432,7 +434,8 @@ commands["class"] = function( data, src, line, lines, state )
 	lines[line].content = ("%s = class.new( %q, %s, %s ) {")
 	           :format( classname, classname, extends or "nil", #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
 
-	state.localised[classname] = true
+	state.localised[classname] = not state.is_private
+	state.is_private = false
 end
 
 commands["interface"] = function( data, src, line, lines, state )
@@ -467,13 +470,15 @@ commands["interface"] = function( data, src, line, lines, state )
 	lines[line].content = ("%s = class.new_interface( %q, %s ) {")
 			   :format( interfacename, interfacename, #interfacelist > 0 and table.concat( interfacelist, ", " ) or "nil" )
 
-	state.localised[interfacename] = true
+	state.localised[interfacename] = not state.is_private
+	state.is_private = false
 end
 
 commands["enum"] = function( data, src, line, lines, state )
 	if data:find "^[%w_]+ {$" then
 		local name = data:sub( 1, -3 )
-		state.localised[name] = true
+		state.localised[name] = not state.is_private
+		state.is_private = false
 		lines[line].content = ("%s = class.new_enum %q {"):format( name, name )
 	else
 		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
@@ -841,13 +846,16 @@ commands["import"] = function( data, src, line, lines, state )
 		end
 
 		for k, v in pairs( localised ) do
-			exports[#exports + 1] = name .. "." .. k .. " = " .. k
+			if v then
+				exports[#exports + 1] = name .. "." .. k .. " = " .. k
+			end
 			localised_names[#localised_names + 1] = k
 		end
 
 		local len = #sublines + 1
 
-		state.localised[name] = true
+		state.localised[name] = not state.is_private
+		state.is_private = false
 		lines[line].content = "do " .. name .. " = {}" .. (#localised_names > 0 and " local " .. table.concat( localised_names, ", " ) or "")
 		sublines[len] = { content = table.concat( exports, "; " ) .. " end", source = "<preprocessor>", line = 0 }
 
@@ -926,6 +934,14 @@ commands["errordata"] = function( data, src, line, lines, state )
 			state.error_data[name][#state.error_data[name] + 1] = { state.error_data[subname][i][1], state.error_data[subname][i][2] .. ": " .. data }
 		end
 	end
+end
+
+commands["private"] = function( data, src, line, lines, state )
+	if data:find "%S" then
+		error( "unexpected data after @private on line " .. line .. " of '" .. src .. "'", 0 )
+	end
+
+	state.is_private = true
 end
 
 return preprocess

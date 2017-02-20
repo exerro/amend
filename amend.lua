@@ -184,7 +184,7 @@ for k, v in pairs( state.localised ) do
 		local_list[i] = k
 	end
 	if modes.package then
-		locals_serialized[i] = ("[%q]=true"):format( k )
+		locals_serialized[i] = ("[%q]=%s"):format( k, tostring( v ) )
 	end
 end
 
