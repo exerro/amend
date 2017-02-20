@@ -800,14 +800,6 @@ commands["import"] = function( data, src, line, lines, state )
 		local sublines = preprocess.process_file( file, substate, true )
 			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 
-		for k, v in pairs( substate.errors ) do
-			k = name_err_add .. k
-			state.errors[k] = state.errors[k] or {}
-			for i = 1, #v do
-				state.errors[k][#state.errors[k] + 1] = v[i]
-			end
-		end
-
 		for k, v in pairs( substate.environment ) do
 			state.environment[name_env_add .. k] = v
 		end
@@ -854,8 +846,19 @@ commands["throws"] = function( data, src, line, lines, state )
 		error( "expected valid name after @throws, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
 	end
 
-	if state.errors[name] then
-		state.errors[name][#state.errors[name] + 1] = { src, lines[line + 1] and lines[line + 1].line or lines[line].line + 1, splitspaced( args ) }
+	if state.error_data[name] then
+		if lines[line + 1] then
+			local data = splitspaced( args )
+			local t = { ("%q"):format( name ) }
+
+			for i = 1, #data do
+				t[i + 1] = ("%q"):format( data[i] )
+			end
+
+			lines[line + 1].error = t
+		else
+			error( "expected line after @throws on line " .. line .. " of '" .. src .. "'", 0 )
+		end
 	else
 		return error( "undefined error name after @throws ('" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 	end
@@ -868,16 +871,13 @@ commands["errordata"] = function( data, src, line, lines, state )
 	data = data:gsub( name:gsub( "%.", "%%%." ) .. "%s+", "", 1 )
 
 	if data:sub( 1, 1 ) == "'" or data:sub( 1, 1 ) == '"' then
-		local pat
-
-	  	state.errors[name] = state.errors[name] or {}
-	  	state.error_data[name] = state.error_data[name] or {}
-
-		pat = data:sub( 1, find_non_escaped( data, data:sub( 1, 1 ), 2 )
+		local pat = data:sub( 1, find_non_escaped( data, data:sub( 1, 1 ), 2 )
 		                      or error( "expected closing '" .. data:sub( 1, 1 ) .. "' for errordata pattern on line " .. line .. " of '" .. src .. "'", 0 ) )
+
 		data = data:sub( #pat + 1 ):match "^%s+(.*)"
 		    or error( "expected data after errordata pattern on line " .. line .. " of '" .. src .. "'", 0 )
 
+		state.error_data[name] = state.error_data[name] or {}
 		state.error_data[name][#state.error_data[name] + 1] = { pat, data }
 	elseif data:sub( 1, 9 ) == "extension" then
 		local subname = name:match "(.+)%."
@@ -887,7 +887,6 @@ commands["errordata"] = function( data, src, line, lines, state )
 			return error( "invalid errordata extension parent ('" .. subname .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 		end
 
-	  	state.errors[name] = state.errors[name] or {}
 	  	state.error_data[name] = state.error_data[name] or {}
 
 		data = data:match "^extension%s+(.*)"

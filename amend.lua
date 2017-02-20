@@ -79,6 +79,7 @@ local modes = {}
 
 local flag_modifier
 local preprocess = dofile "amend/preprocess.lua"
+local concat = table.concat
 
 local function countlines( str )
 	return select( 2, str:gsub( "\n", "" ) ) + 1
@@ -136,7 +137,7 @@ if #outputs == 0 then
 	outputs[1] = dir .. name
 end
 
-local state = preprocess.create_state( table.concat( sources, ";" ) )
+local state = preprocess.create_state( concat( sources, ";" ) )
 local lines = {}
 local linec = 0
 local executable_compiled
@@ -151,7 +152,7 @@ for i = 1, #inputs do
 	local file_linec = file_lines and #file_lines
 
 	if not file_lines then
-		error( "failed to read input '" .. inputs[i] .. "', tried paths:\n    " .. table.concat( paths_tried, "\n    " ), 0 )
+		error( "failed to read input '" .. inputs[i] .. "', tried paths:\n    " .. concat( paths_tried, "\n    " ), 0 )
 	end
 
 	for n = 1, file_linec do
@@ -182,23 +183,17 @@ end
 offset = offset + (i == 0 and 0 or 1) -- 1 line if any locals defined, 0 otherwise
 
 -- section two: error name mapping
-for k, v in pairs( state.errors ) do
-	for n = 1, #v do
-		local t = { ("%q"):format( k ) }
+for i = 1, #lines do
+	local line = lines[i]
 
-		for i = 1, #v[n][3] do
-			t[i + 1] = ("%q"):format( v[n][3][i] )
-		end
-
-		errors_raw[v[n][1]] = errors_raw[v[n][1]] or {}
-		errors_raw[v[n][1]][#errors_raw[v[n][1]] + 1] = "[" .. v[n][2] .. "]={" .. table.concat( t, "," ) .. "}"
+	if line.error then
+		errors_raw[line.source] = errors_raw[line.source] or {}
+		errors_raw[line.source][#errors_raw[line.source] + 1] = ("[%d]={%s}"):format( line.line, concat( line.error, ", " ) )
 	end
 end
 
 for k, v in pairs( errors_raw ) do
-	local s = table.concat( v, ";\n" )
-
-	errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, table.concat( v, ";\n\t\t" ) )
+	errors[#errors + 1] = ("[%q]={\n\t\t%s\n\t}"):format( k, concat( v, ";\n\t\t" ) )
 	elength = elength + #v + 2
 end
 
@@ -215,7 +210,7 @@ for k, v in pairs( state.error_data ) do
 		t[i] = ("{%s,%q}"):format( v[i][1], v[i][2] )
 	end
 
-	error_data[#error_data + 1] = ("[%q]={%s}"):format( k, table.concat( t, "," ) )
+	error_data[#error_data + 1] = ("[%q]={%s}"):format( k, concat( t, "," ) )
 end
 
 if #errors == 0 then
@@ -271,20 +266,20 @@ for i = 1, #line_tracker do
 	line_tracker[i][1] = line_tracker[i][1] + offset
 	line_tracker[i][2] = line_tracker[i][2] + offset
 	line_tracker[i][3] = ("%q"):format( line_tracker[i][3] )
-	line_tracker[i] = "{" .. table.concat( line_tracker[i], ",", 1, 4 ) .. "}"
+	line_tracker[i] = "{" .. concat( line_tracker[i], ",", 1, 4 ) .. "}"
 end
 
 if modes.executable then
-	executable_compiled = table.concat {
-		#local_list > 0 and "local " .. table.concat( local_list, "," ) .. "\n" or "";
-		(#errors > 0 and "local __debug_err_map={\n\t" .. table.concat( errors, ";\n\t" ) .. "\n}\n" or "");
-		(#errors > 0 and "local __debug_err_pats={\n\t" .. table.concat( error_data, ";\n\t" ) .. "\n}\n" or "");
+	executable_compiled = concat {
+		#local_list > 0 and "local " .. concat( local_list, "," ) .. "\n" or "";
+		(#errors > 0 and "local __debug_err_map={\n\t" .. concat( errors, ";\n\t" ) .. "\n}\n" or "");
+		(#errors > 0 and "local __debug_err_pats={\n\t" .. concat( error_data, ";\n\t" ) .. "\n}\n" or "");
 		"local __debug_line_tracker={\n\t";
-		table.concat( line_tracker, ",\n\t" );
+		concat( line_tracker, ",\n\t" );
 		"\n}\n";
 		DEBUG_TRACKER_FUNCTION .. "\n";
 		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		(DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 ));
+		(DEBUG_PCALL:gsub( "LINES", concat( lines_compiled, "\n" ), 1 ));
 	}
 
 	for i = 1, #outputs do
@@ -303,16 +298,16 @@ if modes.package then
 	error "Package mode is not currently implemented"
 
 	-- this all needs to change...
-	package_compiled = table.concat {
-		#local_list > 0 and "local " .. table.concat( local_list, "," ) .. "\n" or "";
-		(#errors > 0 and "local __debug_err_map={\n\t" .. table.concat( errors, ";\n\t" ) .. "\n}\n" or "");
-		(#errors > 0 and "local __debug_err_pats={\n\t" .. table.concat( error_data, ";\n\t" ) .. "\n}\n" or "");
+	package_compiled = concat {
+		#local_list > 0 and "local " .. concat( local_list, "," ) .. "\n" or "";
+		(#errors > 0 and "local __debug_err_map={\n\t" .. concat( errors, ";\n\t" ) .. "\n}\n" or "");
+		(#errors > 0 and "local __debug_err_pats={\n\t" .. concat( error_data, ";\n\t" ) .. "\n}\n" or "");
 		"local __debug_line_tracker={\n\t";
-		table.concat( line_tracker, ",\n\t" );
+		concat( line_tracker, ",\n\t" );
 		"\n}\n";
 		DEBUG_TRACKER_FUNCTION .. "\n";
 		(#errors > 0 and ERR_MAPPING_FUNCTION .. "\n" or "");
-		(DEBUG_PCALL:gsub( "LINES", table.concat( lines_compiled, "\n" ), 1 ));
+		(DEBUG_PCALL:gsub( "LINES", concat( lines_compiled, "\n" ), 1 ));
 	}
 
 	for i = 1, #outputs do
