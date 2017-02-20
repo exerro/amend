@@ -505,14 +505,13 @@ commands["define"] = function( data, src, line, lines, state )
 
 		for i = 1, #args do
 			lookup[args[i]] = "__param" .. i
-			args[i] = "__param" .. i
 		end
 
 		value = value:gsub( "%w+", function( s )
 			return lookup[s] or s
 		end )
 
-		value = { type = "function", args = args, body = value }
+		value = { type = "function", argc = #args, body = value }
 	elseif value == "true" or value == "false" then
 		value = value == "true"
 	elseif tonumber( value ) then
@@ -527,37 +526,7 @@ commands["defineifndef"] = function( data, src, line, lines, state )
 	          or error( "expected name after @defineifndef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
 
 	if not state.environment[name] then
-		data = data:sub( #name + 1 )
-
-		local funcargs = data:match "^%s*%((.-)%)"
-
-		if funcargs then
-			data = data:match "^%s*%(.-%)(.*)"
-		end
-
-		local value = data:match( "%s+(.*)" ) or "true"
-
-		if funcargs then
-			local args = splitat( funcargs, ",%s*" )
-			local lookup = {}
-
-			for i = 1, #args do
-				lookup[args[i]] = "__param" .. i
-				args[i] = "__param" .. i
-			end
-
-			value = value:gsub( "%w+", function( s )
-				return lookup[s] or s
-			end )
-
-			value = { type = "function", args = args, body = value }
-		elseif value == "true" or value == "false" then
-			value = value == "true"
-		elseif tonumber( value ) then
-			value = tonumber( value )
-		end
-
-		state.environment[name] = value
+		return commands.define( data, src, line, lines, state )
 	end
 end
 

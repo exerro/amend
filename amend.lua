@@ -339,7 +339,7 @@ if modes.package then
 	for k, v in pairs( state.environment ) do
 		environment_serialized[#environment_serialized + 1] = ("[%q]=%s"):format( k,
 	 		   type( v ) == "string" and ("%q"):format( v )
-		    or type( v ) == "table" and "not_yet"
+		    or type( v ) == "table" and "{type='function',argc=" .. v.argc .. ",body=" .. ("%q"):format( v.body ) .. "}"
 		    or tostring( v ) )
 	end
 end
