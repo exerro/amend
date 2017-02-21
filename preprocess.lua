@@ -169,7 +169,6 @@ local function microminify( line, state )
 end
 
 local function apply_function_macros( str, state )
-	if not str then error( "here", 3 )end
 	return str:gsub( "([%w_]+)(%b())", function( func, params )
 		local lookup = {}
 
@@ -179,7 +178,6 @@ local function apply_function_macros( str, state )
 			local segments = {}
 			local i = 1
 			local p = 1
-
 			local s, f = params:find ","
 
 			while s do
@@ -195,27 +193,30 @@ local function apply_function_macros( str, state )
 			segments[i] = params:sub( p ):gsub( "^%s+", "" ):gsub( "%s+$", "" )
 
 			for i = 1, #segments do
-				paramt["__param" .. i] = segments[i]
+				paramt["__param" .. i] = apply_function_macros( segments[i], state )
 			end
 
-			return state.environment[func].body:gsub( "__param%d+", paramt )
-		else
-			func = func .. apply_function_macros( params, state )
-		end
+			for i = 1, #state.environment[func] do
+				if state.environment[func][i].argc == #segments then
+					return state.environment[func][i].body:gsub( "__param%d+", paramt )
+				end
+			end
 
-		return func
+			error( "incorrect argument count for '" .. func .. "()' on line " .. line .. " of '" .. src .. "'", 0 )
+		else
+			return func .. apply_function_macros( params, state )
+		end
 	end )
 end
 
-local function fmtline( line, state )
+local function fmtline( line, state, out )
 	if state.ifstack_resultant then
 		-- apply macros
 		line = apply_function_macros( line, state )
-
-		line = line:gsub( "[%w_]+", function( word )
+		     : gsub( out and "$([%w_]+)" or "[%w_]+", function( word )
 			local lookup = {}
 
-			while state.environment[word] do
+			while state.environment[word] and type( state.environment[word] ) ~= "table" do
 				lookup[word] = true
 				word = tostring( state.environment[word] )
 
@@ -243,27 +244,6 @@ local function fmtline( line, state )
 	end
 
 	return ""
-end
-
-local function fmtlineout( data, state )
-	data = apply_function_macros( data, state )
-
-	return (data:gsub( "$([%w_]+)", function( word )
-		if state.environment[word] then
-			local lookup = {}
-			while state.environment[word] do
-				lookup[word] = true
-				word = tostring( state.environment[word] )
-
-				if lookup[word] then
-					break
-				end
-			end
-		else
-			word = "<undefined>"
-		end
-		return word
-	end ))
 end
 
 local function resolvefile( file, state, raw )
@@ -324,7 +304,7 @@ local function processline( lines, src, line, state )
 		end
 	end
 
-	lines[line].content = fmtline( lines[line].content, state )
+	lines[line].content = fmtline( lines[line].content, state, false )
 
 	return skip
 end
@@ -523,14 +503,18 @@ commands["define"] = function( data, src, line, lines, state )
 			return lookup[s] or s
 		end )
 
-		value = { type = "function", argc = #args, body = value }
-	elseif value == "true" or value == "false" then
-		value = value == "true"
-	elseif tonumber( value ) then
-		value = tonumber( value )
-	end
+		if not (state.environment[name] and type( state.environment[name] == "table" ) and state.environment[name].type == "function") then
+			state.environment[name] = { type = "function" }
+		end
 
-	state.environment[name] = value
+		state.environment[name][#state.environment[name] + 1] = { argc = #args, body = value }
+	elseif value == "true" or value == "false" then
+		state.environment[name] = value == "true"
+	elseif tonumber( value ) then
+		state.environment[name] = tonumber( value )
+	else
+		state.environment[name] = value
+	end
 end
 
 commands["defineifndef"] = function( data, src, line, lines, state )
@@ -553,13 +537,13 @@ end
 
 commands["print"] = function( data, src, line, lines, state )
 	if state.ifstack_resultant then
-		print( fmtlineout( data, state ) )
+		print( fmtline( data, state ) )
 	end
 end
 
 commands["error"] = function( data, src, line, lines, state )
 	if state.ifstack_resultant then
-		return error( fmtlineout( data, state ), 0 )
+		return error( fmtline( data, state ), 0 )
 	end
 end
 
@@ -948,7 +932,7 @@ commands["private"] = function( data, src, line, lines, state )
 	if data:find "%S" then
 		error( "unexpected data after @private on line " .. line .. " of '" .. src .. "'", 0 )
 	end
-	
+
 	if state.ifstack_resultant then
 		state.is_private = true
 	end
