@@ -877,16 +877,16 @@ commands["throws"] = function( data, src, line, lines, state )
 		error( "expected valid name after @throws, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
-	if state.error_data[name] then
-		if state.ifstack_resultant then
+	if state.ifstack_resultant then
+		if state.error_data[name] then
 			if lines[line + 1] then
 				lines[line + 1].error = { name, unpack( splitspaced( args ), 1 ) }
 			else
 				error( "expected line after @throws on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 			end
+		else
+			return error( "undefined error name after @throws ('" .. name .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		end
-	else
-		return error( "undefined error name after @throws ('" .. name .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 
@@ -899,13 +899,18 @@ commands["errordata"] = function( data, src, line, lines, state )
 	if data:sub( 1, 1 ) == "'" or data:sub( 1, 1 ) == '"' then
 		local pat = data:sub( 1, find_non_escaped( data, data:sub( 1, 1 ), 2 )
 		                      or error( "expected closing '" .. data:sub( 1, 1 ) .. "' for errordata pattern on line " .. lines[line].line .. " of '" .. src .. "'", 0 ) )
+		local argc = 0
 
 		data = data:sub( #pat + 1 ):match "^%s+(.*)"
 		    or error( "expected data after errordata pattern on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
+		data:gsub( "${(%d+)}", function( n )
+			argc = tonumber( n ) > argc and tonumber( n ) or argc
+		end )
+
 		if state.ifstack_resultant then
 			state.error_data[name] = state.error_data[name] or {}
-			state.error_data[name][#state.error_data[name] + 1] = { unstringify( pat ), data }
+			state.error_data[name][#state.error_data[name] + 1] = { unstringify( pat ), data, argc }
 		end
 	elseif data:sub( 1, 9 ) == "extension" then
 		local subname = name:match "(.+)%."
@@ -921,10 +926,39 @@ commands["errordata"] = function( data, src, line, lines, state )
 
 		  	state.error_data[name] = state.error_data[name] or {}
 
-			for i = 1, #state.error_data[subname] do
-				state.error_data[name][#state.error_data[name] + 1] = { state.error_data[subname][i][1], state.error_data[subname][i][2] .. ": " .. data }
+			local err = state.error_data[name]
+			local sub = state.error_data[subname]
+
+			for i = 1, #sub do
+				err[#err + 1] = { sub[i][1], sub[i][2] .. ": " .. data, sub[i][3] }
 			end
 		end
+	elseif data:sub( 1, 5 ) == "union" then
+		data = data:match "^union%s+(.*)"
+			or error( "expected data after 'union' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
+
+		local parts = splitspaced( data )
+		local t
+
+		if state.ifstack_resultant then
+		  	state.error_data[name] = state.error_data[name] or {}
+			t = state.error_data[name]
+
+			for n = 1, #parts do
+				local subname = parts[n]
+				local st = state.error_data[subname]
+
+				if st then
+					for i = 1, #st do
+						t[#t + 1] = st[i]
+					end
+				else
+					error( "undefined error name '" .. subname .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
+				end
+			end
+		end
+	else
+		return error( "expected quoted error pattern, 'extension' or 'union' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 

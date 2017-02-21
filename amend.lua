@@ -39,11 +39,13 @@ local function __get_err_msg( src, line, err )
 	if __debug_err_map[src] and __debug_err_map[src][line] then
 		local name = __debug_err_map[src][line][1]
 		for i = 1, #__debug_err_pats[name] do
-			local data, r = err:gsub( __debug_err_pats[name][i][1], __debug_err_pats[name][i][2]:gsub( "%$%{(%d+)%}", function( n )
-				return __debug_err_map[src][line][tonumber( n ) + 1]
-			end ), 1 )
-			if r > 0 then
-				return data
+			if __debug_err_pats[name][i][3] == #__debug_err_map[src][line] - 1 then
+				local data, r = err:gsub( __debug_err_pats[name][i][1], __debug_err_pats[name][i][2]:gsub( "%$%{(%d+)%}", function( n )
+					return __debug_err_map[src][line][tonumber( n ) + 1]
+				end ), 1 )
+				if r > 0 then
+					return data
+				end
 			end
 		end
 	end
@@ -101,6 +103,16 @@ local concat = table.concat
 
 local function countlines( str )
 	return select( 2, str:gsub( "\n", "" ) ) + 1
+end
+
+local function serialize_macro_function( macro )
+	local t = {}
+
+	for i = 1, #macro do
+		t[i] = "{argc=" .. macro[i].argc .. ",body=" .. ("%q"):format( macro[i].body ) .. "}"
+	end
+
+	return table.concat( t, "," )
 end
 
 for i = 1, #args do
@@ -208,6 +220,7 @@ local error_data = {} -- string[] stores error data
 local elength = 0 -- internal length of error mapping table
 local offset = 0 -- header line count
 local environment_serialized = {} -- string[] of the serialized environment
+local skipped_line = false
 
 -- section one: local list
 for k, v in pairs( state.localised ) do
@@ -258,7 +271,7 @@ if modes.executable or modes.package then
 		local pats = {}
 
 		for i = 1, #v do
-			t[i] = ("{%q,%q}"):format( v[i][1], v[i][2] )
+			t[i] = ("{%q,%q,%d}"):format( v[i][1], v[i][2], v[i][3] )
 		end
 
 		error_data[#error_data + 1] = ("[%q]={%s}"):format( k, concat( t, "," ) )
@@ -287,7 +300,7 @@ if modes.executable then
 	end
 end
 
--- section six: opening pcall string
+-- section six: opening pcall line
 if modes.executable then
 	offset = offset + 1
 end
@@ -298,6 +311,11 @@ if modes.executable then
 		local space = not lines[i].content:find "%S"
 		local same_tracker = line_tracker[n] and lines[i].source == line_tracker[n][3] and lines[i].line == line_tracker[n][5] + 1
 
+		if skipped_line then
+			same_tracker = false
+			skipped_line = false
+		end
+
 		if lines[i].source ~= "<preprocessor>" then
 			if same_tracker then
 				line_tracker[n][2] = l
@@ -306,6 +324,8 @@ if modes.executable then
 				n = n + 1
 				line_tracker[n] = { l, l, lines[i].source, lines[i].line, lines[i].line }
 			end
+		else
+			skipped_line = true
 		end
 
 		if not space or same_tracker then
@@ -363,7 +383,7 @@ if modes.package then
 	for k, v in pairs( state.environment ) do
 		environment_serialized[#environment_serialized + 1] = ("[%q]=%s"):format( k,
 	 		   type( v ) == "string" and ("%q"):format( v )
-		    or type( v ) == "table" and "{type='function',argc=" .. v.argc .. ",body=" .. ("%q"):format( v.body ) .. "}"
+		    or type( v ) == "table" and v.type == "function" and "{type='function'," .. serialize_macro_function( v ) .. "}"
 		    or tostring( v ) )
 	end
 end
