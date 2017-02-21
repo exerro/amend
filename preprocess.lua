@@ -168,7 +168,7 @@ local function microminify( line, state )
 	return table.concat( res )
 end
 
-local function apply_function_macros( str, state )
+local function apply_function_macros( str, state, line, src )
 	return str:gsub( "([%w_]+)(%b())", function( func, params )
 		local lookup = {}
 
@@ -193,7 +193,7 @@ local function apply_function_macros( str, state )
 			segments[i] = params:sub( p ):gsub( "^%s+", "" ):gsub( "%s+$", "" )
 
 			for i = 1, #segments do
-				paramt["__param" .. i] = apply_function_macros( segments[i], state )
+				paramt["__param" .. i] = apply_function_macros( segments[i], state, line, src )
 			end
 
 			for i = 1, #state.environment[func] do
@@ -204,15 +204,15 @@ local function apply_function_macros( str, state )
 
 			error( "incorrect argument count for '" .. func .. "()' on line " .. line .. " of '" .. src .. "'", 0 )
 		else
-			return func .. apply_function_macros( params, state )
+			return func .. apply_function_macros( params, state, line, src )
 		end
 	end )
 end
 
-local function fmtline( line, state, out )
+local function fmtline( line, state, out, linen, src )
 	if state.ifstack_resultant then
 		-- apply macros
-		line = apply_function_macros( line, state )
+		line = apply_function_macros( line, state, linen, src )
 		     : gsub( out and "$([%w_]+)" or "[%w_]+", function( word )
 			local lookup = {}
 
@@ -300,11 +300,11 @@ local function processline( lines, src, line, state )
 		if commands[command] then
 			skip = commands[command]( res, src, line, lines, state ) or 0
 		else
-		    error( "cannot execute instruction '" .. command .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+		    error( "cannot execute instruction '" .. command .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		end
 	end
 
-	lines[line].content = fmtline( lines[line].content, state, false )
+	lines[line].content = fmtline( lines[line].content, state, false, lines[line].line, src )
 
 	return skip
 end
@@ -368,13 +368,13 @@ commands["localise"] = function( data, src, line, lines, state )
 			state.is_private = false
 		end
 	else
-		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "invalid name to localise: '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 
 commands["class"] = function( data, src, line, lines, state )
 	local classname = data:match "^[%w_]+"
-	   or error( "expected class name after '@class' on line " .. line .. " of '" .. src .. "'", 0 )
+	   or error( "expected class name after '@class' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local len, extends
 	local interfacelist = {}
 
@@ -384,10 +384,10 @@ commands["class"] = function( data, src, line, lines, state )
 		data, len = data:gsub( "extends%s+", "", 1 )
 
 		if len == 0 then
-			return error( "expected space after 'extends' on line " .. line .. " of '" .. src .. "'", 0 )
+			return error( "expected space after 'extends' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		else
 			extends = data:match "^[%w_]+"
-			       or error( "expected super class name after 'extends' on line " .. line .. " of '" .. src .. "'", 0 )
+			       or error( "expected super class name after 'extends' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 			data, len = data:gsub( extends .. "%s+", "", 1 )
 		end
 	end
@@ -396,11 +396,11 @@ commands["class"] = function( data, src, line, lines, state )
 		data, len = data:gsub( "implements%s+", "", 1 )
 
 		if len == 0 then
-			return error( "expected space after 'implements' on line " .. line .. " of '" .. src .. "'", 0 )
+			return error( "expected space after 'implements' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		else
 			repeat
 				iname = data:match "^[%w_]+"
-				     or error( "expected interface name after 'implements' on line " .. line .. " of '" .. src .. "'", 0 )
+				     or error( "expected interface name after 'implements' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 				interfacelist[#interfacelist + 1] = iname
 				data = data:sub( #iname + 1 )
@@ -410,7 +410,7 @@ commands["class"] = function( data, src, line, lines, state )
 	end
 
 	if not data:find "^%s*{?%s*$" then
-		return error( "unexpected '" .. data .. "' after class definition on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "unexpected '" .. data .. "' after class definition on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if state.ifstack_resultant then
@@ -424,7 +424,7 @@ end
 
 commands["interface"] = function( data, src, line, lines, state )
 	local interfacename = data:match "^[%w_]+"
-	   or error( "expected interface name after '@interface' on line " .. line .. " of '" .. src .. "'", 0 )
+	   or error( "expected interface name after '@interface' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local len
 	local interfacelist = {}
 
@@ -434,11 +434,11 @@ commands["interface"] = function( data, src, line, lines, state )
 		data, len = data:gsub( "implements%s+", "", 1 )
 
 		if len == 0 then
-			return error( "expected space after 'implements' on line " .. line .. " of '" .. src .. "'", 0 )
+			return error( "expected space after 'implements' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		else
 			repeat
 				iname = data:match "^[%w_]+"
-					 or error( "expected interface name after 'implements' on line " .. line .. " of '" .. src .. "'", 0 )
+					 or error( "expected interface name after 'implements' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 				interfacelist[#interfacelist + 1] = iname
 				data = data:sub( #iname + 1 )
@@ -448,7 +448,7 @@ commands["interface"] = function( data, src, line, lines, state )
 	end
 
 	if not data:find "^%s*{?%s*$" then
-		return error( "unexpected '" .. data .. "' after interface definition on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "unexpected '" .. data .. "' after interface definition on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if state.ifstack_resultant then
@@ -469,13 +469,13 @@ commands["enum"] = function( data, src, line, lines, state )
 			lines[line].content = ("%s = class.new_enum %q {"):format( name, name )
 		end
 	else
-		return error( "invalid name to localise: '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "invalid name to localise: '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 
 commands["define"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+"
-	          or error( "expected name after @define (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+	          or error( "expected name after @define (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 	if not state.ifstack_resultant then
 		return
@@ -519,7 +519,7 @@ end
 
 commands["defineifndef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+"
-	          or error( "expected name after @defineifndef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+	          or error( "expected name after @defineifndef (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 	if not state.environment[name] and state.ifstack_resultant then
 		return commands.define( data, src, line, lines, state )
@@ -528,7 +528,7 @@ end
 
 commands["unset"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @unset (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @unset (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 	if state.ifstack_resultant then
 		state.environment[name] = nil
@@ -537,19 +537,19 @@ end
 
 commands["print"] = function( data, src, line, lines, state )
 	if state.ifstack_resultant then
-		print( fmtline( data, state ) )
+		print( fmtline( data, state, lines[line].line, src ) )
 	end
 end
 
 commands["error"] = function( data, src, line, lines, state )
 	if state.ifstack_resultant then
-		return error( fmtline( data, state ), 0 )
+		return error( fmtline( data, state, lines[line].line, src ), 0 )
 	end
 end
 
 commands["if"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @if (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @if (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = not not env
 
@@ -566,7 +566,7 @@ end
 
 commands["ifn"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @ifn (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @ifn (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = not env
 
@@ -583,7 +583,7 @@ end
 
 commands["ifdef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @ifdef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @ifdef (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 
 	state.ifstack[#state.ifstack + 1] = state.ifstack_resultant and env ~= nil
@@ -593,7 +593,7 @@ end
 
 commands["ifndef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @ifndef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @ifndef (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 
 	state.ifstack[#state.ifstack + 1] = state.ifstack_resultant and env == nil
@@ -603,7 +603,7 @@ end
 
 commands["elif"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @elif (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @elif (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = not not env
 
@@ -625,7 +625,7 @@ end
 
 commands["elifn"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @elifn (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @elifn (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = not env
 
@@ -647,7 +647,7 @@ end
 
 commands["elifdef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @elifdef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @elifdef (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = env ~= nil
 
@@ -663,7 +663,7 @@ end
 
 commands["elifndef"] = function( data, src, line, lines, state )
 	local name = data:match "^[%w_%-]+$"
-			  or error( "expected name after @elifndef (got '" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			  or error( "expected name after @elifndef (got '" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	local env = state.environment[name]
 	local condition = env == nil
 
@@ -679,7 +679,7 @@ end
 
 commands["else"] = function( data, src, line, lines, state )
 	if data ~= "" then
-		return error( "unexpected data after @else ('" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "unexpected data after @else ('" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if not state.ifmatched[#state.ifstack] then
@@ -694,7 +694,7 @@ end
 
 commands["endif"] = function( data, src, line, lines, state )
 	if data ~= "" then
-		return error( "unexpected data after @endif ('" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "unexpected data after @endif ('" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if #state.ifstack > 0 then
@@ -707,17 +707,17 @@ commands["endif"] = function( data, src, line, lines, state )
 			state.ifstack_resultant = state.ifstack[#state.ifstack]
 		end
 	else
-		return error( "no if block to end on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "no if block to end on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 
 commands["include"] = function( data, src, line, lines, state )
 	local file = data:match "^[%w_%.]+$"
-	          or error( "expected valid name after @include, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+	          or error( "expected valid name after @include, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 	if state.ifstack_resultant then
 		local sublines = preprocess.process_file( file, state )
-			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+			or error( "failed to find file '" .. file .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		local len = #sublines
 
 		for i = #lines, line + 1, -1 do
@@ -734,11 +734,11 @@ end
 
 commands["includeraw"] = function( data, src, line, lines, state )
 	local file = data:match "^[%w_%./]+$"
-	          or error( "expected valid name after @includeraw, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+	          or error( "expected valid name after @includeraw, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 	if state.ifstack_resultant then
 		local sublines = preprocess.process_file( file, state, true )
-			or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+			or error( "failed to find file '" .. file .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		local len = #sublines
 
 		for i = #lines, line + 1, -1 do
@@ -758,7 +758,7 @@ commands["import"] = function( data, src, line, lines, state )
 
 	if not file then
 		file = data:match "^[%w_%./]+/[%w_]+$" or data:match "^[%w_]+$" or data:match "^[%w_%./]+/[%w_]+%.pack$" or data:match "^[%w_]+%.pack$"
-		       or error( "expected <path> [as <name>] after @import, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+		       or error( "expected <path> [as <name>] after @import, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		name = (file:match ".+/(.*)$" or file):gsub( "%.pack$", "", 1 )
 	end
 
@@ -782,7 +782,7 @@ commands["import"] = function( data, src, line, lines, state )
 
 				environment, error_data, localised, sublines = f()
 			else
-				error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+				error( "failed to find file '" .. file .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 			end
 		else
 			local substate = preprocess.create_state( file:match "(.+)/" or "" )
@@ -799,7 +799,7 @@ commands["import"] = function( data, src, line, lines, state )
 			end
 
 			sublines = preprocess.process_file( file, substate, true )
-				or error( "failed to find file '" .. file .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+				or error( "failed to find file '" .. file .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 			environment = substate.environment
 			error_data = substate.error_data
@@ -860,7 +860,7 @@ end
 
 commands["minifystr"] = function( data, src, line, lines, state )
 	if data ~= "" then
-		return error( "unexpected data after @minifystr ('" .. data .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "unexpected data after @minifystr ('" .. data .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if state.ifstack_resultant then
@@ -874,7 +874,7 @@ commands["throws"] = function( data, src, line, lines, state )
 	local name, args = data:match "^([%w_%.%-]+)%s*(.*)$"
 
 	if not name then
-		error( "expected valid name after @throws, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'", 0 )
+		error( "expected valid name after @throws, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if state.error_data[name] then
@@ -882,26 +882,26 @@ commands["throws"] = function( data, src, line, lines, state )
 			if lines[line + 1] then
 				lines[line + 1].error = { name, unpack( splitspaced( args ), 1 ) }
 			else
-				error( "expected line after @throws on line " .. line .. " of '" .. src .. "'", 0 )
+				error( "expected line after @throws on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 			end
 		end
 	else
-		return error( "undefined error name after @throws ('" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+		return error( "undefined error name after @throws ('" .. name .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 end
 
 commands["errordata"] = function( data, src, line, lines, state )
 	local name = data:match "^([%w_%.%-]+)%s"
-	          or error( "expected valid name after @errordata, got '" .. data .. "' on line " .. line .. " of '" .. src .. "'" )
+	          or error( "expected valid name after @errordata, got '" .. data .. "' on line " .. lines[line].line .. " of '" .. src .. "'" )
 
 	data = data:gsub( name:gsub( "%.", "%%%." ) .. "%s+", "", 1 )
 
 	if data:sub( 1, 1 ) == "'" or data:sub( 1, 1 ) == '"' then
 		local pat = data:sub( 1, find_non_escaped( data, data:sub( 1, 1 ), 2 )
-		                      or error( "expected closing '" .. data:sub( 1, 1 ) .. "' for errordata pattern on line " .. line .. " of '" .. src .. "'", 0 ) )
+		                      or error( "expected closing '" .. data:sub( 1, 1 ) .. "' for errordata pattern on line " .. lines[line].line .. " of '" .. src .. "'", 0 ) )
 
 		data = data:sub( #pat + 1 ):match "^%s+(.*)"
-		    or error( "expected data after errordata pattern on line " .. line .. " of '" .. src .. "'", 0 )
+		    or error( "expected data after errordata pattern on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 		if state.ifstack_resultant then
 			state.error_data[name] = state.error_data[name] or {}
@@ -909,15 +909,15 @@ commands["errordata"] = function( data, src, line, lines, state )
 		end
 	elseif data:sub( 1, 9 ) == "extension" then
 		local subname = name:match "(.+)%."
-		             or error( "expected '<parent>.' (got '" .. name .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+		             or error( "expected '<parent>.' (got '" .. name .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 		if not state.error_data[subname] then
-			return error( "invalid errordata extension parent ('" .. subname .. "') on line " .. line .. " of '" .. src .. "'", 0 )
+			return error( "invalid errordata extension parent ('" .. subname .. "') on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 		end
 
 		if state.ifstack_resultant then
 			data = data:match "^extension%s+(.*)"
-				or error( "expected data after 'extension' on line " .. line .. " of '" .. src .. "'", 0 )
+				or error( "expected data after 'extension' on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 
 		  	state.error_data[name] = state.error_data[name] or {}
 
@@ -930,7 +930,7 @@ end
 
 commands["private"] = function( data, src, line, lines, state )
 	if data:find "%S" then
-		error( "unexpected data after @private on line " .. line .. " of '" .. src .. "'", 0 )
+		error( "unexpected data after @private on line " .. lines[line].line .. " of '" .. src .. "'", 0 )
 	end
 
 	if state.ifstack_resultant then
