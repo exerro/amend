@@ -82,7 +82,21 @@ local modes = {}
 local microminify = false
 
 local flag_modifier
-local preprocess = dofile "amend/preprocess.lua"
+local self_path = _G.AMEND_PATH or (shell.getRunningProgram():find "amend.lua" and (shell.getRunningProgram():match "(.+)/" or "")) or "amend"
+
+if not fs.exists( self_path .. "/preprocess.lua" ) then
+	self_path = shell.getRunningProgram():find "amend.lua" and (shell.getRunningProgram():match "(.+)/" or "") or "amend"
+end
+
+if not fs.exists( self_path .. "/preprocess.lua" ) then
+	self_path = "amend"
+end
+
+if not fs.exists( self_path .. "/preprocess.lua" ) then
+	error( "failed to locate preprocess.lua, define _G.AMEND_PATH, use shell.run(), or ensure files are in /amend/", 0 )
+end
+
+local preprocess = dofile( self_path .. "/preprocess.lua" )
 local concat = table.concat
 
 local function countlines( str )
