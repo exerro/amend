@@ -18,7 +18,7 @@ Options
  --microminify; -mm
     enable microminification
 
-Valid compilation modes are 'executable' ('-me') and 'package' ('mp')
+Valid compilation modes are 'executable' ('-me') and 'package' ('-mp')
 Input paths are relative and use dot notation (subdir.file not subdir/file.lua)
 Sources and outputs are absolute with no extension]]
 
@@ -72,7 +72,23 @@ if not __debug_ok then
 end]]
 
 if args[1] == "-h" or args[1] == "help" or args[1] == "--help" then
-	print( HELP )
+	local lines = 1
+	local w, h = term.getSize()
+	local s = HELP:find "\n"
+	local f = 1
+
+	while s do
+		local line = HELP:sub( f, s - 1 )
+
+		if lines + math.ceil( #line / w ) + 1 >= h then
+			os.pullEvent "key"
+		end
+
+		lines = lines + print( line )
+		f = s + 1
+		s = HELP:find( "\n", f )
+	end
+
 	return
 end
 
