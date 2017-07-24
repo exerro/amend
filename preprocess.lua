@@ -3,10 +3,12 @@ local preprocess = {}
 
 local commands = {}
 
+-- converts an escaped string into a plain string ("abc\tde\"f" -> abc	de"f)
 local function unstringify( s )
 	return assert( load( "return" .. s, "string value", nil, {} ) )()
 end
 
+-- normalises a filesystem path
 local function normalise( path )
 	return path
 		  :gsub( "//+", "/" )
@@ -26,6 +28,7 @@ local function getcwd( str, path )
 	return t
 end
 
+-- splits a string into sections using a variable length pattern delimiter, allowing "" as a section
 local function splitat( dat, pat )
 	local segments = {}
 	local i = 1
@@ -44,10 +47,12 @@ local function splitat( dat, pat )
 	return segments
 end
 
+-- splits a list of paths at ";"
 local function splitpaths( path )
 	return path == "" and { "" } or splitat( path, ";" )
 end
 
+-- splits a block of text into lines (using \n not \r)
 local function tolines( content, source )
 	local lines = {}
 	local i = 1
@@ -66,10 +71,11 @@ local function tolines( content, source )
 	return lines
 end
 
+-- finds a pattern `pat` not escaped previously by a backslash
 local function find_non_escaped( line, pat, pos )
 	local closer = line:find( pat, pos )
 	local escape = line:find( "\\", pos )
-	local patlen = #pat
+	local patlen = #pat -- this is only used as an approximate, unless pat allows \
 
 	if not closer then
 		return nil
@@ -85,6 +91,8 @@ local function find_non_escaped( line, pat, pos )
 	return closer
 end
 
+-- splits a string at space characters, counting strings (between "" or '') as single items
+-- returns string closing character as second return value if applicable
 local function splitspaced( str )
 	local s, f = str:find "%S+"
 	local segments = {}
@@ -125,6 +133,7 @@ local function splitspaced( str )
 	return segments, false
 end
 
+-- primitively minifies a line of code
 local function microminify( line, state )
 	local n = 1
 	local res = {}
@@ -168,19 +177,18 @@ local function microminify( line, state )
 	return table.concat( res )
 end
 
-local function apply_function_macros( str, state, line, src )
+-- applies function macros on text
+local function apply_function_macros( str, environment, line, src )
 	return str:gsub( "([%w_]+)(%b())", function( func, params )
-		local lookup = {}
-
-		if state.environment[func] and type( state.environment[func] ) == "table" and state.environment[func].type == "function" then
-			params = params:sub( 2, -2 )
+		if environment[func] and type( environment[func] ) == "table" and environment[func].type == "function" then
+			params = params:sub( 2, -2 ) -- trim brackets
 			local paramt = {}
 			local segments = {}
 			local i = 1
 			local p = 1
 			local s, f = params:find ","
 
-			while s do
+			while s do -- split params on commas
 				local str = params:sub( p, s - 1 )
 				if select( 2, str:gsub( "%(", "" ) ) == select( 2, str:gsub( "%)", "" ) ) then
 					segments[i] = str:gsub( "^%s+", "" ):gsub( "%s+$", "" )
@@ -193,36 +201,33 @@ local function apply_function_macros( str, state, line, src )
 			segments[i] = params:sub( p ):gsub( "^%s+", "" ):gsub( "%s+$", "" )
 
 			for i = 1, #segments do
-				paramt["__param" .. i] = apply_function_macros( segments[i], state, line, src )
+				paramt["__param" .. i] = apply_function_macros( segments[i], environment, line, src )
 			end
 
-			for i = 1, #state.environment[func] do
-				if state.environment[func][i].argc == #segments then
-					return state.environment[func][i].body:gsub( "__param%d+", paramt )
+			for i = 1, #environment[func] do
+				if environment[func][i].argc == #segments then
+					return environment[func][i].body:gsub( "__param%d+", paramt )
 				end
 			end
 
 			error( "incorrect argument count for '" .. func .. "()' on line " .. line .. " of '" .. src .. "'", 0 )
 		else
-			return func .. apply_function_macros( params, state, line, src )
+			return func .. apply_function_macros( params, environment, line, src )
 		end
 	end )
 end
 
+-- formats a line for output, applying macros and minification, and respecting the @if commands
 local function fmtline( line, state, out, linen, src )
 	if state.ifstack_resultant then
 		-- apply macros
-		line = apply_function_macros( line, state, linen, src )
-		     : gsub( out and "$([%w_]+)" or "[%w_]+", function( word )
+		line = apply_function_macros( line, state.environment, linen, src )
+		     : gsub( out and "$([%w_]+)" or "[%w_]+", function( word ) -- note: `out` is for when outputting something e.g. from a command
 			local lookup = {}
 
-			while state.environment[word] and type( state.environment[word] ) ~= "table" do
+			while state.environment[word] and type( state.environment[word] ) ~= "table" and not lookup[word] do
 				lookup[word] = true
 				word = tostring( state.environment[word] )
-
-				if lookup[word] then
-					break
-				end
 			end
 
 			return word
@@ -231,6 +236,7 @@ local function fmtline( line, state, out, linen, src )
 		if state.microminify then
 			line = microminify( line, state )
 		else
+			-- remove unwanted indentation from preprocessor @if
 			for i = 1, #state.ifstack do
 				if line:sub( 1, 1 ) == "\t" then
 					line = line:sub( 2 )
