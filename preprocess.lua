@@ -100,7 +100,8 @@ local function splitspaced( str )
 
 	while s do
 		local seg = str:sub( s, f )
-		local pos = seg:find "'" or seg:find '"'
+		local pos1, pos2 = seg:find "'", seg:find '"'
+		local pos = pos1 and pos2 and math.min( pos1, pos2 ) or pos1 or pos2
 
 		if pos then
 			if pos > 1 then
@@ -179,7 +180,7 @@ end
 
 -- applies function macros on text
 local function apply_function_macros( str, environment, line, src )
-	return str:gsub( "([%w_]+)(%b())", function( func, params )
+	return str:gsub( "([%w_%.:]+)(%b())", function( func, params )
 		if environment[func] and type( environment[func] ) == "table" and environment[func].type == "function" then
 			params = params:sub( 2, -2 ) -- trim brackets
 			local paramt = {}
@@ -190,7 +191,7 @@ local function apply_function_macros( str, environment, line, src )
 
 			while s do -- split params on commas
 				local str = params:sub( p, s - 1 )
-				if select( 2, str:gsub( "%(", "" ) ) == select( 2, str:gsub( "%)", "" ) ) then
+				if select( 2, str:gsub( "%(", "" ) ) == select( 2, str:gsub( "%)", "" ) ) and select( 2, str:gsub( "{", "" ) ) == select( 2, str:gsub( "}", "" ) ) then
 					segments[i] = str:gsub( "^%s+", "" ):gsub( "%s+$", "" )
 					p = f + 1
 					i = i + 1
@@ -489,7 +490,7 @@ commands["define"] = function( data, src, line, lines, state )
 
 	data = data:sub( #name + 1 )
 
-	local funcargs = data:match "^%s*%((.-)%)"
+	local funcargs = data:match "^%((.-)%)"
 
 	if funcargs then
 		data = data:match "^%s*%(.-%)(.*)"

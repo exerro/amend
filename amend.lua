@@ -53,9 +53,9 @@ local function __get_err_msg( src, line, err )
 end]]
 
 local DEBUG_PCALL = [[
-local __debug_ok, __debug_err = pcall( function()
+local __debug_ok, __debug_err = pcall( function(...)
 LINES
-end )
+end, ... )
 if not __debug_ok then
 	if type( __debug_err ) == "string" then
 		local e = select( 2, pcall( error, "@", 2 ) )
