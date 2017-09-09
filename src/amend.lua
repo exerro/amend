@@ -1,6 +1,4 @@
 
-local require = require
-
 if not require then
 	local dofile = dofile
 
