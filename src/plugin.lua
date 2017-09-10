@@ -23,12 +23,13 @@ local function plugin_environment( name )
 		parse_node_callbacks = {},
 		transform_node_callbacks = {},
 		transform_ast_callbacks = {},
-		compile_node_callbacks = {},
-		compile_header_callbacks = {},
-		compile_footer_callbacks = {},
 	}
 
 	env.plugin = plugin
+
+	plugin.lookup = setmetatable( {}, { __newindex = function( s, k, v )
+		plugin.file_lookup_callbacks[k] = v
+	end } )
 
 	plugin.directives = setmetatable( {}, { __newindex = function( s, k, v )
 		plugin.directive_list[#plugin.directive_list + 1] = k
@@ -53,22 +54,8 @@ local function plugin_environment( name )
 		end
 	end } )
 
-	plugin.compile = setmetatable( {}, { __newindex = function( s, k, v )
-		if k == "node" then
-			plugin.compile_node_callbacks[#plugin.compile_node_callbacks + 1] = v
-		elseif k == "header" then
-			plugin.compile_header_callbacks[#plugin.compile_header_callbacks + 1] = v
-		elseif k == "footer" then
-			plugin.compile_footer_callbacks[#plugin.compile_footer_callbacks + 1] = v
-		else
-			return error( "unsupported mode '" .. tostring( k ) .. "'" )
-		end
-	end } )
-
 	setmetatable( plugin, { __newindex = function( s, k, v )
-		if k == "lookup" then
-			plugin.file_lookup_callbacks[#plugin.file_lookup_callbacks + 1] = v
-		elseif k == "parse" then
+		if k == "parse" then
 			plugin.parse_node_callbacks[#plugin.parse_node_callbacks + 1] = v
 		end
 	end } )

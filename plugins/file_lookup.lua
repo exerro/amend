@@ -121,10 +121,7 @@ local function find_files( str )
 	return results, n_res
 end
 
---- The file lookup callback.
--- @param pipeline	description
--- @return io file handle, URI, weight, mode
-function plugin.lookup( filename, build )
+function plugin.lookup.file( filename, build )
 	local paths, n = find_files( filename )
 	local result = {}
 

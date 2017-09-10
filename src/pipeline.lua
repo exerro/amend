@@ -1,6 +1,19 @@
 
+--[[ Stages
+0
+	get_stream()
+1
+	parse()
+2
+	transform()
+3
+	compile()
+4
+]]
+
 local util = require "util"
 local warning = require "warning"
+local stream = require "parsing.stream"
 local ID = 0
 local pipeline = {}
 
@@ -9,7 +22,7 @@ local function applies_to( plugin, mode )
 		return true
 	end
 	for pmode in plugin.mode:gmatch "%s*([^;,%s][^;,]*)" do
-		if pmode == "*" or pmode == mode then
+		if pmode == "*" or mode:find( "^" .. util.escape_patterns( pmode ) ) then
 			return true
 		end
 	end
@@ -26,6 +39,7 @@ function pipeline:new( uri, mode, build, host )
 		host = host,
 		plugins = {},
 		meta = {},
+		stage = 0,
 
 		-- plugin callbacks
 		read_all_required = false,
@@ -38,9 +52,6 @@ function pipeline:new( uri, mode, build, host )
 		parse_node_callbacks = {},
 		transform_node_callbacks = {},
 		transform_ast_clalbacks = {},
-		compile_node_callbacks = {},
-		compile_header_callbacks = {},
-		compile_footer_callbacks = {},
 	}, { __index = self } )
 
 	for i = 1, #build.plugins do
@@ -56,10 +67,6 @@ function pipeline:initialise_plugin( plugin )
 	self.meta[plugin.name] = plugin.state( self )
 	self.plugins[#self.plugins + 1] = plugin
 	self.read_all_required = self.read_all_required or plugin.file_read_all
-
-	if plugin.file_read_all then
-		self.read_all_callbacks[#self.read_all_callbacks + 1] = plugin.file_read_modifier
-	end
 
 	for i = 1, #plugin.directive_list do
 		local directive = plugin.name .. "/" .. plugin.directive_list[i]
@@ -85,53 +92,40 @@ function pipeline:initialise_plugin( plugin )
 	for i = 1, #plugin.transform_ast_callbacks do
 		self.transform_ast_callbacks[#self.transform_ast_callbacks + 1] = plugin.transform_ast_callbacks[i]
 	end
-
-	for i = 1, #plugin.compile_node_callbacks do
-		self.compile_node_callbacks[#self.compile_node_callbacks + 1] = plugin.compile_node_callbacks[i]
-	end
-
-	for i = 1, #plugin.compile_header_callbacks do
-		self.compile_header_callbacks[#self.compile_header_callbacks + 1] = plugin.compile_header_callbacks[i]
-	end
-
-	for i = 1, #plugin.compile_footer_callbacks do
-		self.compile_footer_callbacks[#self.compile_footer_callbacks + 1] = plugin.compile_footer_callbacks[i]
-	end
 end
 
-function pipeline:get_handle()
-	local max_weight = -math.huge
-	local max_weight_mode = nil
-	local max_weight_uri = nil
+function pipeline:get_stream()
+	if self.read_all_required then
+		local handle = util.open_uri_handle( self.uri )
 
-	local URIs = self.build:get_URI_list( self.filename )
+		if handle then
+			local content = handle:read "*a"
+			handle:close()
 
-	for i = 1, #URIs do
-		local obj = URIs[i]
-
-		if obj.weight > max_weight then
-			max_weight = obj.weight
-			max_weight_uri = obj.path
-			max_weight_mode = obj.mode
-		end
-	end
-
-	if not max_weight_uri then
-		return warning.error( warning.PIPELINE_HANDLE_ERR, "failed to get handle for pipeline '" .. self.filename .. "'" )
-	end
-
-	self.handle = util.open_uri_handle( max_weight_uri )
-	self.uri = max_weight_uri
-
-	for i = 1, #self.plugins do
-		for mode in self.plugins[i].mode:gmatch "[^;,]+" do
-			mode = mode:gsub( "^%s+", "" ):gsub( "%s+$", "" )
-
-			if mode == "*" or mode == max_weight_mode then
-				self:initialise_plugin( self.plugins[i] )
+			for i = 1, #self.plugins do
+				if self.plugins[i].file_read_all then
+					content = self.plugins[i].file_read_modifier( self, content )
+				end
 			end
+
+			self.stage = 1
+			return stream.stringstream:new( content, 1 )
+		else
+			warning.warn( warning.URI_HANDLE_OPEN_FAIL, "failed to open handle for URI '" .. self.uri .. "'" )
+			return nil
+		end
+	else
+		local s = stream.filestream:new( self.uri )
+
+		if s then
+			return s
+		else
+			warning.warn( warning.URI_HANDLE_OPEN_FAIL, "failed to open handle for URI '" .. self.uri .. "'" )
+			return nil
 		end
 	end
+
+	return stream
 end
 
 return pipeline

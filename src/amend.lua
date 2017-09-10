@@ -34,12 +34,14 @@ local util = require "util"
 local build = require "build"
 
 local options, args = util.parse_args { ... }
-local thisbuild = build:new( options )
+local paths = options.path
+local environment = {}
+local thisbuild = build:new( paths, environment, options )
 
 for i = 1, #(options.plugin or {}) do
-	thisbuild:plugin( options.plugin[i] )
+	assert( thisbuild:plugin( options.plugin[i] ), "failed to include plugin '" .. options.plugin[i] .. "'" )
 end
 
 for i = 1, #args do
-	thisbuild:include( args[i] )
+	assert( thisbuild:include( args[i] ), "failed to include file '" .. args[i] .. "'" )
 end

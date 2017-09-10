@@ -64,4 +64,8 @@ function util.format_string( str, env, ... )
 	end )
 end
 
+function util.escape_patterns( str )
+	return str:gsub( "[%%%.%^%$%?%+%-%*%(%)%[%]]", "%%%1" )
+end
+
 return util
