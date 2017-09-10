@@ -79,7 +79,7 @@ end
 
 function pipeline:get_handle()
 	local file_list = {}
-	local max_weight = 0
+	local max_weight = -math.huge
 	local max_weight_handle = nil
 	local max_weight_mode = nil
 	local max_weight_uri = nil
