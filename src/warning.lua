@@ -6,6 +6,7 @@ local WWARN = 1
 local WERROR = 2
 
 warning.PLUGIN_ERR = "PLUGIN_ERR"
+warning.PIPELINE_HANDLE_ERR = "PIPELINE_HANDLE_ERR"
 
 warning.statuses = setmetatable( {}, { __index = function() return WWARN end } )
 

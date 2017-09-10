@@ -3,24 +3,14 @@ local warning = require "warning"
 
 local plugin = {}
 
---[[
-File Parse
-	node callbacks
-AST Transform
-	node-X callbacks
-	node callbacks
-	AST callbacks
-Compile
-	node-X callbacks
-	header callbacks
-	footer callbacks
-]]
-
 local function plugin_environment( name )
 	local env = {}
 	local plugin = {
+		name = name,
+		mode = "*",
+		state = function() return {} end,
 		file_lookup_callbacks = {},
-		file_read_all = nil,
+		file_read_all = false,
 		file_read_modifier = nil,
 		directive_list = {},
 		directive_callbacks = {},
@@ -113,7 +103,7 @@ function plugin.load( file, paths )
 			local content = h:read "*a"
 			h:close()
 
-			return plugin_loader( content, name ) or {}
+			return plugin_loader( content, name )
 		end
 	end
 
