@@ -25,9 +25,22 @@ local function copy( t )
 	return r
 end
 
-function build:new( path )
+function build:new( options )
+	local paths = {}
+
+	for i = 1, #(options.path or {}) do
+		paths[i] = options.path[i]
+	end
+	for i = 1, #(options.p or {}) do
+		paths[#paths + 1] = options.p[i]
+	end
+
+	options.path = nil
+	options.p = nil
+
 	local b = setmetatable( {
-		paths = split_path( path ),
+		options = options,
+		paths = paths,
 		plugins = {},
 	}, { __index = self } )
 
@@ -35,11 +48,14 @@ function build:new( path )
 end
 
 function build:plugin( plugin_name )
-	self.plugins[#self.plugins + 1] = plugin.load( plugin_name, self.paths )
+	local p = plugin.load( plugin_name, self.paths )
+
+	self.plugins[#self.plugins + 1] = p
+	p:load( self )
 end
 
-function build:include( file )
-	local p = pipeline:new( file, copy( self.plugins ) )
+function build:include( file, host )
+	local p = pipeline:new( file, copy( self.plugins ), host )
 
 	p:get_handle()
 	-- ...

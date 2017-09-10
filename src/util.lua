@@ -38,4 +38,21 @@ function util.parse_args( args )
 	return options, args
 end
 
+function util.open_uri_handle( uri )
+	local protocol, data = uri:match "^([%w_%-]+)://(.*)"
+
+	protocol = protocol or "file"
+	data = data or uri
+
+	if protocol == "file" then
+		return io.open( data, "r" )
+	else
+		return error( "protocol '" .. protocol .. "' is not supported", 0 )
+	end
+end
+
+function util.has_uri_protocol( str )
+	return str:find( "^[%w_%-]+://" ) and true or false
+end
+
 return util

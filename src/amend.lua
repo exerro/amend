@@ -34,9 +34,11 @@ local util = require "util"
 local build = require "build"
 
 local options, args = util.parse_args { ... }
-local thisbuild = build:new( table.concat( options.path or {}, ";" ) .. ";/amend/plugins" )
+local thisbuild = build:new( options )
 
-thisbuild:plugin( "print.lua" )
+for i = 1, #(options.plugin or {}) do
+	thisbuild:plugin( options.plugin[i] )
+end
 
 for i = 1, #args do
 	thisbuild:include( args[i] )

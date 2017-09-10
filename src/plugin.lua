@@ -1,5 +1,6 @@
 
 local warning = require "warning"
+local util = require "util"
 
 local plugin = {}
 
@@ -8,6 +9,8 @@ local function plugin_environment( name )
 	local plugin = {
 		name = name,
 		mode = "*",
+		data = {},
+		load = function( self, builder ) end,
 		state = function() return {} end,
 		file_lookup_callbacks = {},
 		file_read_all = false,
@@ -70,7 +73,7 @@ local function plugin_environment( name )
 		end
 	end } )
 
-	return setmetatable( env, getfenv and getfenv() or _ENV ), plugin
+	return setmetatable( env, { __index = getfenv and getfenv() or _ENV } ), plugin
 end
 
 local function plugin_loader( content, name )
@@ -94,16 +97,21 @@ end
 
 function plugin.load( file, paths )
 	local name = file:gsub( ".+/", "" ):gsub( "%.%w+$", "", 1 )
+	local absolute = file:sub( 1, 1 ) == "/" or util.has_uri_protocol( file )
 
 	for i = 1, #(paths or {}) do
 		local path = (paths[i] or ".") .. "/" .. file
-		local h = io.open( path, "r" ) -- TODO: change to support URLs
+		local h = util.open_uri_handle( absolute and file or path )
 
 		if h then
 			local content = h:read "*a"
 			h:close()
 
 			return plugin_loader( content, name )
+		end
+
+		if absolute then
+			break
 		end
 	end
 

@@ -3,14 +3,16 @@ local warning = require "warning"
 local ID = 0
 local pipeline = {}
 
-function pipeline:new( filename, plugins )
+function pipeline:new( filename, plugins, host )
 	ID = ID + 1
 	local p = setmetatable( {
 		ID = ID,
 		filename = filename,
 		plugins = plugins,
+		host = host,
 		meta = {},
 		handle = nil,
+		uri = nil,
 		read_all_required = false,
 		read_all_callbacks = {},
 		directives = {},
@@ -80,6 +82,7 @@ function pipeline:get_handle()
 	local max_weight = 0
 	local max_weight_handle = nil
 	local max_weight_mode = nil
+	local max_weight_uri = nil
 	local handles_to_close = {}
 
 	for i = 1, #self.plugins do
@@ -88,7 +91,7 @@ function pipeline:get_handle()
 			local t = callbacks[j]( self )
 
 			for i = 1, #t do
-				local handle, weight, mode = t[i][1], t[i][2], t[i][3]
+				local handle, uri, weight, mode = t[i][1], t[i][2], t[i][3], t[i][4]
 
 				if weight > max_weight then
 					handles_to_close[#handles_to_close + 1] = max_weight_handle
@@ -111,6 +114,7 @@ function pipeline:get_handle()
 	end
 
 	self.handle = max_weight_handle
+	self.uri = max_weight_uri
 
 	for i = 1, #self.plugins do
 		for mode in self.plugins[i].mode:gmatch "[^;,]+" do
