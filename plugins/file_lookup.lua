@@ -124,12 +124,12 @@ end
 --- The file lookup callback.
 -- @param pipeline	description
 -- @return io file handle, URI, weight, mode
-function plugin.lookup( filename )
+function plugin.lookup( filename, build )
 	local paths, n = find_files( filename )
 	local result = {}
 
 	for i = 1, n do
-		result[i] = { paths[i], 0, "*" }
+		result[i] = { uri = paths[i], mode = "*" }
 	end
 
 	return result

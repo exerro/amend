@@ -4,16 +4,30 @@ local warning = require "warning"
 local ID = 0
 local pipeline = {}
 
-function pipeline:new( filename, plugins, host )
+local function applies_to( plugin, mode )
+	if mode == "*" then
+		return true
+	end
+	for pmode in plugin.mode:gmatch "%s*([^;,%s][^;,]*)" do
+		if pmode == "*" or pmode == mode then
+			return true
+		end
+	end
+	return false
+end
+
+function pipeline:new( uri, mode, build, host )
 	ID = ID + 1
 	local p = setmetatable( {
 		ID = ID,
-		filename = filename,
-		plugins = plugins,
+		uri = uri,
+		mode = mode,
+		build = build,
 		host = host,
+		plugins = {},
 		meta = {},
-		handle = nil,
-		uri = nil,
+
+		-- plugin callbacks
 		read_all_required = false,
 		read_all_callbacks = {},
 		directives = {},
@@ -29,11 +43,18 @@ function pipeline:new( filename, plugins, host )
 		compile_footer_callbacks = {},
 	}, { __index = self } )
 
+	for i = 1, #build.plugins do
+		if applies_to( build.plugins[i], mode ) then
+			self:initialise_plugin( build.plugins[i] )
+		end
+	end
+
 	return p
 end
 
 function pipeline:initialise_plugin( plugin )
 	self.meta[plugin.name] = plugin.state( self )
+	self.plugins[#self.plugins + 1] = plugin
 	self.read_all_required = self.read_all_required or plugin.file_read_all
 
 	if plugin.file_read_all then
