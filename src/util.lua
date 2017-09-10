@@ -55,4 +55,13 @@ function util.has_uri_protocol( str )
 	return str:find( "^[%w_%-]+://" ) and true or false
 end
 
+function util.format_string( str, env, ... )
+	if type( env ) ~= "table" then
+		env = { env, ... }
+	end
+	return str:gsub( "$([%w_]+)", function( s )
+		return env[s:find( "^%d+$" ) and tonumber( s ) or s]
+	end )
+end
+
 return util
