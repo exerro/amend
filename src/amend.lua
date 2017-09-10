@@ -29,3 +29,15 @@ if not require then
 		return cache[filename]
 	end
 end
+
+local util = require "util"
+local build = require "build"
+
+local options, args = util.parse_args { ... }
+local thisbuild = build:new( table.concat( options.path or {}, ";" ) .. ";/amend/plugins" )
+
+thisbuild:plugin( "print.lua" )
+
+for i = 1, #args do
+	thisbuild:include( args[i] )
+end

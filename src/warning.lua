@@ -10,8 +10,8 @@ warning.PIPELINE_HANDLE_ERR = "PIPELINE_HANDLE_ERR"
 
 warning.statuses = setmetatable( {}, { __index = function() return WWARN end } )
 
-function warning.error( wcode, status )
-	return error( wcode .. ": " .. message, 0 )
+function warning.error( wcode, message )
+	return error( tostring( wcode ) .. ": " .. message, 0 )
 end
 
 function warning.warn( wcode, message )

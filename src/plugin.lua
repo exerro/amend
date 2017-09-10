@@ -97,7 +97,7 @@ function plugin.load( file, paths )
 
 	for i = 1, #(paths or {}) do
 		local path = (paths[i] or ".") .. "/" .. file
-		local h = io.read( path ) -- TODO: change to support URLs
+		local h = io.open( path, "r" ) -- TODO: change to support URLs
 
 		if h then
 			local content = h:read "*a"

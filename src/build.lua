@@ -44,3 +44,5 @@ function build:include( file )
 	p:get_handle()
 	-- ...
 end
+
+return build
