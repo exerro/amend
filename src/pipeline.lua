@@ -1,4 +1,5 @@
 
+local util = require "util"
 local warning = require "warning"
 local ID = 0
 local pipeline = {}
@@ -78,42 +79,27 @@ function pipeline:initialise_plugin( plugin )
 end
 
 function pipeline:get_handle()
-	local file_list = {}
 	local max_weight = -math.huge
-	local max_weight_handle = nil
 	local max_weight_mode = nil
 	local max_weight_uri = nil
-	local handles_to_close = {}
 
-	for i = 1, #self.plugins do
-		local callbacks = self.plugins[i].file_lookup_callbacks
-		for j = 1, #callbacks do
-			local t = callbacks[j]( self )
+	local URIs = self.build:get_URI_list( self.filename )
 
-			for i = 1, #t do
-				local handle, uri, weight, mode = t[i][1], t[i][2], t[i][3], t[i][4]
+	for i = 1, #URIs do
+		local obj = URIs[i]
 
-				if weight > max_weight then
-					handles_to_close[#handles_to_close + 1] = max_weight_handle
-					max_weight = weight
-					max_weight_handle = handle
-					max_weight_mode = mode
-				else
-					handles_to_close[#handles_to_close + 1] = handle
-				end
-			end
+		if obj.weight > max_weight then
+			max_weight = obj.weight
+			max_weight_uri = obj.path
+			max_weight_mode = obj.mode
 		end
 	end
 
-	for i = 1, #handles_to_close do
-		handles_to_close[i]:close()
-	end
-
-	if not max_weight_handle then
+	if not max_weight_uri then
 		return warning.error( warning.PIPELINE_HANDLE_ERR, "failed to get handle for pipeline '" .. self.filename .. "'" )
 	end
 
-	self.handle = max_weight_handle
+	self.handle = util.open_uri_handle( max_weight_uri )
 	self.uri = max_weight_uri
 
 	for i = 1, #self.plugins do

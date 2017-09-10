@@ -1,6 +1,7 @@
 
 local pipeline = require "pipeline"
 local plugin = require "plugin"
+local stream = require "stream"
 
 local build = {}
 
@@ -59,6 +60,39 @@ function build:include( file, host )
 
 	p:get_handle()
 	-- ...
+end
+
+--- Trigger file lookup.
+-- @param filename	The filename to look for, passed to plugins' file lookup callback
+-- @return An array of URIs
+function build:get_URI_list( filename )
+	local URIs = {}
+	local n = 0
+
+	for i = 1, #self.plugins do
+		local callbacks = self.plugins[i].file_lookup_callbacks
+		for j = 1, #callbacks do
+			local t = callbacks[j]( self, filename )
+
+			for k = 1, #t do
+				n = n + 1
+				URIs[n] = {
+					path   = t[k][1];
+					weight = t[k][2];
+					mode   = t[k][3];
+				}
+			end
+		end
+	end
+
+	return URIs
+end
+
+--- Get a new stream into URI.
+-- @param URI	description
+-- @return The stream object
+function build:get_stream( URI )
+	return stream.filestream:new( URI )
 end
 
 return build

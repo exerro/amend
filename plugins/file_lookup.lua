@@ -92,7 +92,6 @@ local function find_files( str )
 			local s, e, name = find( path .. "/", "/?([^/]*[%*%?][^/]*)/" )
 			local rest = path:sub( e, -1 )
 
-
 			name = wildcard_to_pattern( name )
 
 			local directory
@@ -125,12 +124,12 @@ end
 --- The file lookup callback.
 -- @param pipeline	description
 -- @return io file handle, URI, weight, mode
-function plugin.lookup( pipeline )
-	local paths, n = find_files( pipeline.filename )
+function plugin.lookup( filename )
+	local paths, n = find_files( filename )
 	local result = {}
 
 	for i = 1, n do
-		result[i] = { io.open( paths[i], "r" ), paths[i], 0, "*" }
+		result[i] = { paths[i], 0, "*" }
 	end
 
 	return result
