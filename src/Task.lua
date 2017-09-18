@@ -2,6 +2,44 @@
 local Task = {}
 local super_task
 
+local function parse_reorder_string( str )
+	local s, f, n = str:find "%s*(%S+)%s*%->"
+	local of = f and f + 1 or 1
+	local t = { { n, false } }
+	while s do
+		s, f, n = str:find( "%s*(%S+)%s*%->", f + 1 )
+		t[#t][2] = n
+		if s then
+			of = f + 1
+			t[#t + 1] = { n, false }
+		end
+	end
+	t[#t][2] = str:match( "(%S+)", of )
+	return t
+end
+
+local function get_constraints( trees )
+	local constraints = {}
+
+	for i = 1, #trees do
+		local tree = trees[i]
+		for j = 1, #tree.task._order do
+			local order = tree.task._order[j]
+			constraints[#constraints + 1] = order[1] == "before" and { tree.task.name, order[2] } or { order[2], tree.task.name }
+		end
+	end
+
+	for i = 1, #constraints do
+		print( tostring( constraints[i][1] ) .. " -> " .. tostring( constraints[i][2] ) )
+	end
+
+	return constraints
+end
+
+local function sort_task_list( t, constraints )
+
+end
+
 local function new_tree( task, parent )
 	return {
 		task = task,
@@ -29,6 +67,7 @@ local function get_tree( tasks )
 					if tree_lookup[task._replaces].parent == within or not task._within then
 						local replacee = tree_lookup[task._replaces]
 						local tree = new_tree( task, replacee.parent )
+						tree.children = tree_lookup[task._replaces].children
 						replacee.replacers[#replacee.replacers + 1] = tree
 						tree_lookup[task.name] = tree
 						table.remove( tasks, i )
@@ -139,7 +178,8 @@ end
 
 function Task.generate_pipeline( tasks )
 	local tree = get_tree( tasks )
-
+	-- the tree children ordering
+	-- generate sequential list of tasks and return it
 end
 
 function Task:takes( datatype )
@@ -233,16 +273,20 @@ local function serialize_tree( tree )
 	return (c[1] and "[" .. table.concat( c, ", " ) .. "] " or "") .. (r[1] and "{" .. table.concat( r, ", " ) .. "} " or "") .. (tree.enabled and "" or "!") .. tree.task.name
 end
 
-local h = fs.open( "/amend/log.txt", "w" )
-h.write( serialize_tree( get_tree {
-	Task "custom_macro_expansion" :replaces "macro_expansion",
-	Task "variable_lookup" :within "transform" :optional(),
-	Task "macro_expansion" :within "transform",
-	Task "transform" :requires "root" :optional(),
-	--Task "lua_variable_tag" :optional();
-	Task "lua_constant_fold" :enables "lua_variable_tag" :after "lua_variable_tag"
-} ) )
-h.close()
+Task.generate_pipeline( {
+	Task "A",
+	Task "B" :after "A",
+	Task "C" :after "A",
+	Task "D" :after "C",
+	Task "E" :after "D" :after "C"
+} )
+
+local t = parse_reorder_string "a -> b -> c -> d"
+
+for i = 1, #t do
+	t[i] = tostring( t[i][1] ) .. " -> " .. tostring( t[i][2] )
+end
+
 --[[ End of testing ]]----------------------------------------------------------
 
 return Task
