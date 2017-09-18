@@ -7,6 +7,7 @@ local function new_tree( task, parent )
 		task = task,
 		parent = parent,
 		replacers = {},
+		enabled = not task._optional,
 		children = {}
 	}
 end
@@ -14,6 +15,7 @@ end
 local function get_tree( tasks )
 	local tree = new_tree( super_task )
 	local tree_lookup = { [super_task.name] = tree }
+	local dependencies = {}
 
 	while #tasks > 0 do
 		local lastl = #tasks
@@ -36,9 +38,30 @@ local function get_tree( tasks )
 				elseif not task._replaces then
 					local tree = new_tree( task, within )
 					tree_lookup[within].children[#tree_lookup[within].children + 1] = tree
+					tree_lookup[within].enabled = true
 					tree_lookup[task.name] = tree
 					table.remove( tasks, i )
 				end
+
+				local d = task._dependencies
+				for i = 1, #d do
+					local t = dependencies[d[i].name]
+					if not t then
+						t = {}
+						dependencies[d[i].name] = t
+					end
+					if d[i].required then
+						t[#t + 1] = task.name
+					end
+				end
+			end
+		end
+
+		for k, v in pairs( dependencies ) do
+			if tree_lookup[k] then
+				tree_lookup[k].enabled = true
+			elseif #v > 0 then
+				return error( "Task '" .. k .. "' required by '" .. table.concat( v, "', '" ) .. "' but not found", 0 )
 			end
 		end
 
@@ -85,22 +108,19 @@ local function get_tree( tasks )
 		end
 	end
 
+	local function disable_recursive( t )
+		if #t.replacers > 0 then
+			t.enabled = false
+		end
+
+		for i = 1, #t.children do
+			disable_recursive( t.children[i] )
+		end
+	end
+
+	disable_recursive( tree )
+
 	return tree
-end
-
-local function serialize_tree( tree )
-	local c = {}
-	local r = {}
-
-	for i = 1, #tree.children do
-		c[i] = serialize_tree( tree.children[i] )
-	end
-
-	for i = 1, #tree.replacers do
-		r[i] = serialize_tree( tree.replacers[i] )
-	end
-
-	return (c[1] and "[" .. table.concat( c, ", " ) .. "] " or "") .. (r[1] and "{" .. table.concat( r, ", " ) .. "} " or "") .. tree.task.name
 end
 
 function Task:new( name )
@@ -109,15 +129,17 @@ function Task:new( name )
 	task._within = nil
 	task._replaces = nil
 	task._reorder = nil
-	task.order = {}
+	task._order = {}
+	task._dependencies = {}
 	task._takes = nil
 	task._returns = nil
-	task._labels = {}
+	task._optional = false
 	return task
 end
 
-function Task.construct_task_list( tasks )
+function Task.generate_pipeline( tasks )
 	local tree = get_tree( tasks )
+
 end
 
 function Task:takes( datatype )
@@ -150,27 +172,34 @@ function Task:replaces( task )
 end
 
 function Task:before( task )
-	self.order[#self.order + 1] = { "before", task }
+	self._dependencies[#self._dependencies + 1] = { name = task, required = false }
+	self._order[#self._order + 1] = { "before", task }
 	return self
 end
 
 function Task:after( task )
-	self.order[#self.order + 1] = { "after", task }
-	return self
-end
-
-function Task:at( label )
-	self.order[#self.order + 1] = { "at", label }
-	return self
-end
-
-function Task:labels( labels )
-	self._labels = labels
+	self._dependencies[#self._dependencies + 1] = { name = task, required = false }
+	self._order[#self._order + 1] = { "after", task }
 	return self
 end
 
 function Task:reorder( order )
 	self._reorder = order
+	return self
+end
+
+function Task:optional( v )
+	self._optional = v == nil and true or v
+	return self
+end
+
+function Task:requires( task )
+	self._dependencies[#self._dependencies + 1] = { name = task, required = true }
+	return self
+end
+
+function Task:enables( task )
+	self._dependencies[#self._dependencies + 1] = { name = task, required = false }
 	return self
 end
 
@@ -187,15 +216,31 @@ setmetatable( Task, { __call = Task.new } )
 super_task = Task "root"
 	:takes "URI"
 	:returns "AST"
-	:labels { "stream", "parse_origin", "transform_origin", "compile_origin", "parse", "transform", "pre-merge" }
 
 --[[ Testing ]]-----------------------------------------------------------------
+local function serialize_tree( tree )
+	local c = {}
+	local r = {}
+
+	for i = 1, #tree.children do
+		c[i] = serialize_tree( tree.children[i] )
+	end
+
+	for i = 1, #tree.replacers do
+		r[i] = serialize_tree( tree.replacers[i] )
+	end
+
+	return (c[1] and "[" .. table.concat( c, ", " ) .. "] " or "") .. (r[1] and "{" .. table.concat( r, ", " ) .. "} " or "") .. (tree.enabled and "" or "!") .. tree.task.name
+end
+
 local h = fs.open( "/amend/log.txt", "w" )
 h.write( serialize_tree( get_tree {
-	Task "custom_macro_expansion" :within "root" :replaces "macro_expansion",
-	Task "variable_lookup" :within "transform",
+	Task "custom_macro_expansion" :replaces "macro_expansion",
+	Task "variable_lookup" :within "transform" :optional(),
 	Task "macro_expansion" :within "transform",
-	Task "transform" :within "boop",
+	Task "transform" :requires "root" :optional(),
+	--Task "lua_variable_tag" :optional();
+	Task "lua_constant_fold" :enables "lua_variable_tag" :after "lua_variable_tag"
 } ) )
 h.close()
 --[[ End of testing ]]----------------------------------------------------------
